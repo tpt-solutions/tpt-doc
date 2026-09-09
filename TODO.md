@@ -7,7 +7,7 @@
 
 ## Phase 0: Workspace Scaffold
 
-- [x] Init workspace `Cargo.toml` with all 7 member crates
+- [x] Init workspace `Cargo.toml` with all 7 member crates (expanded to 10)
 - [x] Add `LICENSE-MIT` and `LICENSE-APACHE` files
 - [x] Add `README.md` with project overview, license badges, crates.io badges
 - [x] Add `CHANGELOG.md` (Keep a Changelog format)
@@ -27,6 +27,9 @@
 - [x] `crates/tpt-doc-pdf/` — Cargo.toml, src/lib.rs, src/document.rs, src/page.rs, src/font.rs, src/xref.rs
 - [x] `crates/tpt-doc-sign/` — Cargo.toml, src/lib.rs, src/pades.rs, src/xades.rs, src/cades.rs
 - [x] `crates/tpt-doc-layout/` — Cargo.toml, src/lib.rs, src/render.rs, src/html.rs, src/css.rs
+- [ ] `crates/tpt-doc-word/` — Cargo.toml, src/lib.rs, src/document.rs, src/paragraph.rs, src/styles.rs, src/table.rs
+- [ ] `crates/tpt-doc-ubl/` — Cargo.toml, src/lib.rs, src/invoice.rs, src/types.rs, src/validate.rs
+- [ ] `crates/tpt-doc-hl7v2/` — Cargo.toml, src/lib.rs, src/parser.rs, src/segment.rs, src/encode.rs
 - [ ] Create `tests/` and `tests/fixtures/` directories in each crate that needs them
 
 ---
@@ -52,6 +55,24 @@
 
 ---
 
+## Phase 1.5 — Month 2–3: Word / DOCX
+
+### tpt-doc-word
+- [ ] Implement `[Content_Types].xml` and `_rels/.rels` OOXML package parts
+- [ ] Implement `word/document.xml` serializer from `DocxDocument` body
+- [ ] Implement `word/styles.xml` with Normal, Heading1–6, Table styles
+- [ ] Implement `word/settings.xml` (compatibility settings)
+- [ ] Assemble parts into ZIP via `zip` crate (same pattern as tpt-doc-spreadsheet)
+- [ ] Implement `Paragraph` with `Run` elements and `RunStyle` (bold, italic, underline, font size)
+- [ ] Implement `Table` with rows, cells, and basic border styles
+- [ ] Implement headers and footers (`word/header1.xml`, `word/footer1.xml`)
+- [ ] Implement basic `.docx` reader: extract plain text from `word/document.xml`
+- [ ] Integration test: generate a `.docx`, open with known-good parser and assert content
+- [ ] proptest: round-trip paragraph text through docx encode → text extract
+- [ ] Snapshot test (`insta`): deterministic XML for a fixture document
+
+---
+
 ## Phase 2 — Months 3–4: FHIR + EDI
 
 ### tpt-doc-fhir
@@ -70,6 +91,21 @@
 - [ ] Add fixture `tests/fixtures/sample.edifact` and `tests/fixtures/sample_835.x12`
 - [ ] Integration test: parse fixtures and assert segment/element values
 - [ ] proptest: round-trip segment data; no-panic property over arbitrary `&[u8]`
+
+---
+
+## Phase 2.5 — Month 4–5: HL7 v2.x
+
+### tpt-doc-hl7v2
+- [ ] Implement streaming HL7 v2.x tokeniser (segment separator `\r`, field `|`, component `^`, repeat `~`, escape `\`, subcomponent `&`)
+- [ ] Read encoding characters from `MSH-2` to handle non-default delimiters
+- [ ] Yield zero-allocation `Segment<'a>` items borrowing from input `&[u8]` (same pattern as tpt-doc-edi)
+- [ ] Implement typed access: `segment.field(n)`, `segment.component(n, m)`, `segment.repeat(n, r)`
+- [ ] Implement message encoder: build `MSH` and append segments, serialize to `\r`-delimited bytes
+- [ ] Embed segment definitions for MSH, PID, PV1, OBR, OBX, NTE, EVN, AL1, DG1 (v2.5.1)
+- [ ] Add fixture `tests/fixtures/adt_a01.hl7` (ADT^A01 admit), `tests/fixtures/oru_r01.hl7` (lab result)
+- [ ] Integration test: parse fixtures and assert MSH-9 message type, PID-3 patient ID
+- [ ] proptest: no-panic property over arbitrary `&[u8]` input
 
 ---
 
@@ -104,6 +140,25 @@
 - [ ] Connect layout output → `tpt_doc_pdf::Document` content streams
 - [ ] Integration test: render a fixture HTML report → PDF, visual diff check
 - [ ] proptest: fuzz arbitrary HTML input, assert no panics
+
+---
+
+## Phase 4 — Month 7–8: UBL / PEPPOL e-Invoicing
+
+### tpt-doc-ubl
+- [ ] Implement `Invoice` type covering UBL 2.1 mandatory elements (ID, IssueDate, Supplier, Customer, LineItems, TaxTotal, LegalMonetaryTotal)
+- [ ] Implement `CreditNote` mirroring Invoice structure
+- [ ] Serialize to UBL 2.1/2.3-compliant XML with correct namespaces (`urn:oasis:names:specification:ubl:schema:xsd:Invoice-2`)
+- [ ] Parse incoming UBL XML invoices → typed `Invoice` struct
+- [ ] Implement PEPPOL BIS Billing 3.0 validation rules (schematron-style, embedded as Rust assertions)
+- [ ] Implement `Party` (supplier/customer): name, address, VAT/tax ID, endpoint ID
+- [ ] Implement `InvoiceLine`: item description, quantity, unit price, line extension amount
+- [ ] Implement `TaxSubtotal`: tax category (S/Z/E/AE), rate, taxable amount, tax amount
+- [ ] Add Factur-X/ZUGFeRD hybrid PDF+XML output as optional feature (`facturx` feature flag, depends on `tpt-doc-pdf`)
+- [ ] Add fixture `tests/fixtures/peppol_invoice.xml` (valid PEPPOL BIS 3.0 invoice)
+- [ ] Integration test: parse fixture and assert supplier name, total amounts, line count
+- [ ] Integration test: generate invoice → serialize → parse back → assert equal
+- [ ] proptest: round-trip `Invoice` through serialize → parse
 
 ---
 

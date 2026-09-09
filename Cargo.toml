@@ -8,6 +8,9 @@ members = [
     "crates/tpt-doc-pdf",
     "crates/tpt-doc-sign",
     "crates/tpt-doc-layout",
+    "crates/tpt-doc-word",
+    "crates/tpt-doc-ubl",
+    "crates/tpt-doc-hl7v2",
 ]
 
 [workspace.package]

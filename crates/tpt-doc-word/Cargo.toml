@@ -1,0 +1,22 @@
+[package]
+name = "tpt-doc-word"
+description = "Pure-Rust .docx (OOXML Word) document generation and parsing — no COM, no LibreOffice"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["docx", "word", "ooxml", "document", "office"]
+categories = ["encoding", "parser-implementations", "text-processing"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+zip = { workspace = true }
+quick-xml = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+insta = { workspace = true }

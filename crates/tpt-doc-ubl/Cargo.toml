@@ -1,0 +1,21 @@
+[package]
+name = "tpt-doc-ubl"
+description = "UBL 2.1/2.3 and PEPPOL BIS Billing 3.0 e-invoicing — parse and generate compliant XML invoices"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["ubl", "peppol", "invoice", "e-invoicing", "xml"]
+categories = ["encoding", "parser-implementations", "web-programming"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+quick-xml = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

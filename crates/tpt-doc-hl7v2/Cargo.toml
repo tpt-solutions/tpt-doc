@@ -1,0 +1,19 @@
+[package]
+name = "tpt-doc-hl7v2"
+description = "Streaming HL7 v2.x (pipe-delimited) message parser and encoder — zero allocation per segment"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["hl7", "healthcare", "msh", "oru", "adt"]
+categories = ["encoding", "parser-implementations", "science"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+memchr = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
