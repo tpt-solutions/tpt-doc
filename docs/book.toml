@@ -1,0 +1,17 @@
+[book]
+title = "tpt-doc"
+description = "The Enterprise Document & Data Substrate — pure-Rust document generation and parsing"
+authors = ["TPT Solutions"]
+language = "en"
+multilingual = false
+src = "src"
+
+[output.html]
+site-url = "/tpt-doc/"
+git-repository-url = "https://github.com/tpt-solutions/tpt-doc"
+edit-url-template = "https://github.com/tpt-solutions/tpt-doc/edit/main/docs/{path}"
+no-section-label = false
+
+[output.html.fold]
+enable = true
+level = 1

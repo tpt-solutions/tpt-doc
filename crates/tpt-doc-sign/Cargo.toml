@@ -1,0 +1,21 @@
+[package]
+name = "tpt-doc-sign"
+description = "Pure-Rust cryptographic document signing — PAdES, XAdES, CAdES — leveraging ring primitives"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["pades", "xades", "cades", "signing", "hipc"]
+categories = ["cryptography", "encoding"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+tpt-doc-pdf   = { workspace = true }
+ring = { workspace = true }
+x509-parser = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

@@ -1,0 +1,22 @@
+[package]
+name = "tpt-doc-core"
+description = "Shared traits, zero-copy buffer abstractions, and unified error types for the tpt-doc ecosystem"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["document", "no-std", "zero-copy", "enterprise", "fhir"]
+categories = ["no-std", "data-structures", "encoding"]
+rust-version.workspace = true
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+# zero external deps — intentional
+
+[dev-dependencies]
+proptest = { workspace = true }

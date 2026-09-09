@@ -1,0 +1,21 @@
+[package]
+name = "tpt-doc-pdf"
+description = "Pure-Rust PDF 1.7/2.0 generation and parsing — no pdfium, no C-FFI"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["pdf", "document", "generation", "pure-rust", "enterprise"]
+categories = ["encoding", "rendering", "multimedia::encoding"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+ttf-parser = { workspace = true }
+flate2 = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+insta = { workspace = true }

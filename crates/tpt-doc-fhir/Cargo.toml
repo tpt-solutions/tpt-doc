@@ -1,0 +1,22 @@
+[package]
+name = "tpt-doc-fhir"
+description = "HL7 FHIR R5 typed parsing, validation, and serialization with compile-time resource validation"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["fhir", "hl7", "healthcare", "hipc", "nzism"]
+categories = ["encoding", "parser-implementations", "science"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+quick-xml = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

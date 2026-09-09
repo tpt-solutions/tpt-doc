@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tpt-doc-core",
+    "crates/tpt-doc-spreadsheet",
+    "crates/tpt-doc-fhir",
+    "crates/tpt-doc-edi",
+    "crates/tpt-doc-pdf",
+    "crates/tpt-doc-sign",
+    "crates/tpt-doc-layout",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["TPT Solutions <phillip@icb.co.nz>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/tpt-solutions/tpt-doc"
+homepage = "https://github.com/tpt-solutions/tpt-doc"
+keywords = ["document", "pdf", "fhir", "edi", "enterprise"]
+categories = ["encoding", "parser-implementations"]
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Shared across multiple crates
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = { version = "0.37", features = ["serialize"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+csv = "1"
+memchr = "2"
+ttf-parser = "0.25"
+flate2 = "1"
+time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
+ring = "0.17"
+x509-parser = "0.16"
+proptest = "1"
+insta = "1"
+
+tpt-doc-core = { path = "crates/tpt-doc-core", version = "0.1.0" }
+tpt-doc-pdf   = { path = "crates/tpt-doc-pdf",   version = "0.1.0" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1

@@ -1,0 +1,37 @@
+Design Document 1: tpt-doc
+The Enterprise Document & Data Substrate
+1. Vision
+To provide high-assurance, pure-Rust, spec-compliant document generation and parsing for civic and enterprise platforms. It eliminates the need to shell out to Python/Java or rely on fragile, bloated crates, ensuring strict compliance with standards like NZISM, HL7 FHIR R5, and HIPC 2020, all while maintaining a 100% MIT-compatible dependency chain.
+2. Workspace Architecture (7 Crates)
+tpt-doc-core: Shared traits, zero-copy buffer abstractions (bytes-like but no_std), and unified error types.
+tpt-doc-spreadsheet: Strict, memory-efficient .xlsx (OOXML) and .csv parsing/generation without loading entire files into RAM.
+tpt-doc-fhir: HL7 FHIR R5 typed parsing, validation, and serialization (JSON/XML) with compile-time resource validation.
+tpt-doc-edi: EDIFACT and X12 parsing with schema validation and zero-allocation segment streaming.
+tpt-doc-pdf: Pure-Rust PDF 1.7/2.0 generation and parsing. No pdfium, no C-FFI. Focus on deterministic layout and font subsetting.
+tpt-doc-sign: Pure-Rust cryptographic document signing (PAdES, XAdES, CAdES) leveraging ring/rustls primitives.
+tpt-doc-layout: A minimal, deterministic, headless HTML/CSS-to-PDF layout engine for generating compliant reports.
+3. Technical Deep Dive: The "Secret Sauce"
+Zero-Copy OOXML Parsing: .xlsx files are just ZIP archives of XML. tpt-doc-spreadsheet will stream the ZIP entries and parse XML using quick-xml (MIT), mapping directly to Rust structs without intermediate DOM tree allocation.
+Type-State FHIR Validation: Instead of runtime panics on invalid FHIR resources, tpt-doc-fhir will use Rust's type system to enforce mandatory fields at compile time where possible, and return rich, structured validation errors for runtime constraints.
+Deterministic PDF Generation: We avoid the "draw pixel by pixel" approach. Instead, we build a declarative document model (Pages, Fonts, Streams) that is serialized directly to PDF objects with precise byte-offset cross-reference tables, ensuring 100% spec compliance and tiny file sizes.
+4. Target API
+
+use tpt_doc_fhir::prelude::*;
+use tpt_doc_sign::prelude::*;
+
+// 1. Build a strictly typed FHIR Patient resource
+let patient = Patient::builder()
+    .id("nz-12345".into())
+    .name(HumanName::new("Smith", "John"))
+    .build()?; // Compile-time guarantee of mandatory fields
+
+// 2. Serialize to compliant JSON
+let json_bytes = patient.to_json()?;
+
+// 3. Sign the document (e.g., for HIPC 2020 compliance)
+let signature = tpt_doc_sign::pades::sign(&json_bytes, &private_key)?;
+
+5. Execution Roadmap
+Phase 1 (Months 1-2): tpt-doc-core + tpt-doc-spreadsheet. Prove the zero-copy parsing model.
+Phase 2 (Months 3-4): tpt-doc-fhir + tpt-doc-edi. Tackle the complex civic/enterprise data formats.
+Phase 3 (Months 5-6): tpt-doc-pdf + tpt-doc-sign + tpt-doc-layout. Deliver the final, visually compliant document output pipeline.

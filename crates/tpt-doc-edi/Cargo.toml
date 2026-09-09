@@ -1,0 +1,19 @@
+[package]
+name = "tpt-doc-edi"
+description = "EDIFACT and X12 parsing with schema validation and zero-allocation segment streaming"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["edifact", "x12", "edi", "healthcare", "enterprise"]
+categories = ["encoding", "parser-implementations"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+memchr = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

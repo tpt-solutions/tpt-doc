@@ -1,0 +1,30 @@
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# IDE / editor
+.vscode/
+.idea/
+*.iml
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# mdBook output
+/docs/book/
+
+# Coverage
+lcov.info
+*.profraw
+*.profdata
+
+# cargo-deny
+/binstall/
+
+# Environment
+.env
+*.env.local

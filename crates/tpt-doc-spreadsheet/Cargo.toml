@@ -1,0 +1,22 @@
+[package]
+name = "tpt-doc-spreadsheet"
+description = "Streaming .xlsx (OOXML) and .csv parsing and generation without loading entire files into RAM"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["xlsx", "csv", "ooxml", "spreadsheet", "streaming"]
+categories = ["encoding", "parser-implementations", "filesystem"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+zip = { workspace = true }
+quick-xml = { workspace = true }
+csv = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

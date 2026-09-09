@@ -1,0 +1,20 @@
+[package]
+name = "tpt-doc-layout"
+description = "Minimal, deterministic, headless HTML/CSS-to-PDF layout engine for generating compliant reports"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["html", "css", "pdf", "layout", "report"]
+categories = ["rendering", "encoding", "web-programming"]
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+tpt-doc-pdf   = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+insta = { workspace = true }
