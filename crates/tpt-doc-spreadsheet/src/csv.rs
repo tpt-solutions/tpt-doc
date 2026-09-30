@@ -59,8 +59,6 @@ impl<W: std::io::Write> CsvWriter<W> {
     /// # Errors
     /// Returns [`DocError`] on I/O failure.
     pub fn flush(&mut self) -> Result<(), DocError> {
-        self.inner
-            .flush()
-            .map_err(DocError::from)
+        self.inner.flush().map_err(DocError::from)
     }
 }

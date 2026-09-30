@@ -44,6 +44,7 @@ pub enum Gender {
 
 impl Patient {
     /// Start building a new `Patient`.
+    #[must_use]
     pub fn builder() -> PatientBuilder<NoId> {
         PatientBuilder {
             id: NoId,
@@ -59,9 +60,8 @@ impl Patient {
     /// # Errors
     /// Returns an error if JSON serialization fails.
     pub fn to_json(&self) -> Result<Vec<u8>, FhirValidationError> {
-        serde_json::to_vec_pretty(self).map_err(|e| {
-            FhirValidationError::new("/", format!("JSON serialization failed: {e}"))
-        })
+        serde_json::to_vec_pretty(self)
+            .map_err(|e| FhirValidationError::new("/", format!("JSON serialization failed: {e}")))
     }
 
     /// Deserialize from FHIR-compliant JSON bytes.
@@ -69,8 +69,150 @@ impl Patient {
     /// # Errors
     /// Returns an error if the bytes are not valid FHIR Patient JSON.
     pub fn from_json(bytes: &[u8]) -> Result<Self, FhirValidationError> {
-        serde_json::from_slice(bytes).map_err(|e| {
-            FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
+        serde_json::from_slice(bytes)
+            .map_err(|e| FhirValidationError::new("/", format!("JSON deserialization failed: {e}")))
+    }
+
+    /// Serialize to FHIR-compliant XML bytes.
+    ///
+    /// # Errors
+    /// Returns an error if XML serialization fails.
+    pub fn to_xml(&self) -> Result<Vec<u8>, FhirValidationError> {
+        let mut xml = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+        let _ = std::fmt::Write::write_fmt(
+            &mut xml,
+            format_args!(r#"<Patient xmlns="{}">"#, crate::xml::FHIR_NS),
+        );
+        crate::xml::value_element(&mut xml, "id", &self.id);
+        for identifier in &self.identifier {
+            crate::xml::open_element(&mut xml, "identifier");
+            if let Some(system) = &identifier.system {
+                crate::xml::value_element(&mut xml, "system", system);
+            }
+            crate::xml::value_element(&mut xml, "value", &identifier.value);
+            crate::xml::close_element(&mut xml, "identifier");
+        }
+        for name in &self.name {
+            crate::xml::open_element(&mut xml, "name");
+            if let Some(family) = &name.family {
+                crate::xml::value_element(&mut xml, "family", family);
+            }
+            for given in &name.given {
+                crate::xml::value_element(&mut xml, "given", given);
+            }
+            crate::xml::close_element(&mut xml, "name");
+        }
+        if let Some(gender) = &self.gender {
+            let code = match gender {
+                Gender::Male => "male",
+                Gender::Female => "female",
+                Gender::Other => "other",
+                Gender::Unknown => "unknown",
+            };
+            crate::xml::value_element(&mut xml, "gender", code);
+        }
+        if let Some(birth_date) = &self.birth_date {
+            crate::xml::value_element(&mut xml, "birthDate", birth_date);
+        }
+        crate::xml::close_element(&mut xml, "Patient");
+        Ok(xml.into_bytes())
+    }
+
+    /// Deserialize from FHIR-compliant XML bytes.
+    ///
+    /// # Errors
+    /// Returns an error if the bytes are not a valid FHIR Patient XML document.
+    pub fn from_xml(bytes: &[u8]) -> Result<Self, FhirValidationError> {
+        use quick_xml::events::Event;
+
+        let mut reader = quick_xml::Reader::from_reader(bytes);
+        let mut id = String::new();
+        let mut names: Vec<HumanName> = Vec::new();
+        let mut identifiers: Vec<Identifier> = Vec::new();
+        let mut gender = None;
+        let mut birth_date = None;
+        let mut current_name = HumanName {
+            family: None,
+            given: Vec::new(),
+        };
+        let mut current_identifier = Identifier {
+            system: None,
+            value: String::new(),
+        };
+        let mut in_identifier = false;
+        let err = |msg: String| FhirValidationError::new("/f:Patient", msg);
+
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(start)) => {
+                    if crate::xml::is_element(&start, "name") {
+                        current_name = HumanName {
+                            family: None,
+                            given: Vec::new(),
+                        };
+                    } else if crate::xml::is_element(&start, "identifier") {
+                        current_identifier = Identifier {
+                            system: None,
+                            value: String::new(),
+                        };
+                        in_identifier = true;
+                    }
+                }
+                Ok(Event::Empty(start)) => {
+                    let value = || crate::xml::attr_value(&start, "value").unwrap_or_default();
+                    match start.local_name().as_ref() {
+                        "id" => id = value(),
+                        "family" => current_name.family = Some(value()),
+                        "given" => current_name.given.push(value()),
+                        "system" => current_identifier.system = Some(value()),
+                        "value" if in_identifier => current_identifier.value = value(),
+                        "gender" => {
+                            let code = value();
+                            gender = Some(match code.as_str() {
+                                "male" => Gender::Male,
+                                "female" => Gender::Female,
+                                "other" => Gender::Other,
+                                "unknown" => Gender::Unknown,
+                                other => return Err(err(format!("unknown gender `{other}`"))),
+                            });
+                        }
+                        "birthDate" => birth_date = Some(value()),
+                        _ => {}
+                    }
+                }
+                Ok(Event::End(end)) => match end.local_name().as_ref() {
+                    "name" => names.push(std::mem::replace(
+                        &mut current_name,
+                        HumanName {
+                            family: None,
+                            given: Vec::new(),
+                        },
+                    )),
+                    "identifier" => {
+                        in_identifier = false;
+                        identifiers.push(std::mem::replace(
+                            &mut current_identifier,
+                            Identifier {
+                                system: None,
+                                value: String::new(),
+                            },
+                        ));
+                    }
+                    _ => {}
+                },
+                Ok(Event::Eof) => break,
+                Ok(_) => {}
+                Err(e) => return Err(err(format!("XML error: {e}"))),
+            }
+        }
+
+        Ok(Patient {
+            resource_type: "Patient".into(),
+            id,
+            name: names,
+            identifier: identifiers,
+            gender,
+            birth_date,
         })
     }
 }
@@ -93,24 +235,28 @@ pub struct PatientBuilder<IdState> {
 
 impl<IdState> PatientBuilder<IdState> {
     /// Add a name.
+    #[must_use]
     pub fn name(mut self, name: HumanName) -> Self {
         self.name.push(name);
         self
     }
 
     /// Add an identifier.
+    #[must_use]
     pub fn identifier(mut self, id: Identifier) -> Self {
         self.identifier.push(id);
         self
     }
 
     /// Set the administrative gender.
+    #[must_use]
     pub fn gender(mut self, gender: Gender) -> Self {
         self.gender = Some(gender);
         self
     }
 
     /// Set the date of birth (ISO 8601 partial date).
+    #[must_use]
     pub fn birth_date(mut self, date: impl Into<String>) -> Self {
         self.birth_date = Some(date.into());
         self
@@ -134,6 +280,7 @@ impl PatientBuilder<HasId> {
     /// Finalize and construct the [`Patient`].
     ///
     /// Only callable once `id` has been supplied (enforced at compile time).
+    #[must_use]
     pub fn build(self) -> Patient {
         Patient {
             resource_type: "Patient".into(),

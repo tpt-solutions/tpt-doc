@@ -1,0 +1,23 @@
+# X12 transaction-set segment requirement tables (subset).
+# Columns: set<TAB>segment<TAB>req
+# req: M=must appear at least once, O=optional (element checks still apply)
+835	ST	M
+835	BPR	M
+835	N1	M
+835	CLP	M
+835	SVC	O
+835	SE	M
+837	ST	M
+837	BHT	M
+837	N1	M
+837	CLM	M
+837	SE	M
+270	ST	M
+270	BHT	M
+270	HL	M
+270	SE	M
+271	ST	M
+271	BHT	M
+271	HL	M
+271	EB	M
+271	SE	M

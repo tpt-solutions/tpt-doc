@@ -8,8 +8,11 @@
 
 extern crate alloc;
 
+/// Zero-copy borrowed byte-slice abstractions.
 pub mod buf;
+/// The unified [`DocError`] error type.
 pub mod error;
+/// Shared reader/writer/validation traits.
 pub mod traits;
 
 pub use buf::BufSlice;

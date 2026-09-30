@@ -1,0 +1,32 @@
+# X12 element-level validation table (subset).
+# Columns: segment<TAB>position<TAB>type<TAB>min<TAB>max<TAB>req
+# position: 1-based data element position after the segment id
+ISA	1	id	2	2	M
+ISA	2	an	10	10	C
+ISA	3	id	2	2	M
+ISA	4	an	10	10	C
+ISA	5	id	2	2	M
+ISA	6	an	15	15	M
+ISA	15	id	1	1	M
+ISA	16	an	1	1	M
+GS	1	id	1	12	M
+GS	2	an	2	15	M
+GS	3	an	1	9	M
+GS	6	an	1	9	M
+ST	1	id	3	9	M
+ST	2	an	4	9	M
+BPR	1	id	1	2	M
+BPR	2	r	1	18	M
+N1	1	id	2	3	M
+N1	2	an	1	60	C
+CLP	1	an	1	38	M
+CLP	2	id	1	2	M
+CLP	3	r	1	18	M
+SVC	1	an	1	48	M
+SVC	2	r	1	18	M
+SE	1	n	1	10	M
+SE	2	an	4	9	M
+GE	1	n	1	6	M
+GE	2	an	1	9	M
+IEA	1	n	1	5	M
+IEA	2	n	5	13	M

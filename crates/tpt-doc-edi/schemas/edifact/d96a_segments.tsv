@@ -1,0 +1,27 @@
+# UN/EDIFACT D.96A segment element tables (subset).
+# Columns: segment<TAB>position<TAB>type<TAB>min<TAB>max<TAB>req
+# type: an=alphanumeric, n=numeric, r=decimal, dt=date/time, id=identifier
+# position: 1-based data element position after the segment tag
+# req: M=mandatory, C=conditional
+UNB	1	an	1	35	M
+UNB	2	an	1	35	M
+UNB	3	an	1	35	M
+UNB	4	an	1	35	M
+UNB	5	an	1	35	M
+UNB	6	an	1	35	C
+UNH	1	an	1	14	M
+UNH	2	an	1	64	M
+UNH	3	an	1	35	C
+BGM	1	an	1	35	M
+BGM	2	an	1	35	M
+DTM	1	an	1	35	M
+NAD	1	an	1	3	M
+NAD	2	an	1	35	C
+LIN	1	an	1	6	M
+LIN	2	an	1	35	C
+QTY	1	an	1	35	M
+MOA	1	an	1	35	M
+UNT	1	n	1	6	M
+UNT	2	an	1	14	M
+UNZ	1	n	1	6	M
+UNZ	2	an	1	14	M

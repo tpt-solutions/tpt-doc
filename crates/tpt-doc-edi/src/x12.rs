@@ -9,11 +9,13 @@ pub struct X12Segment<'a> {
 
 impl<'a> X12Segment<'a> {
     /// The segment identifier (e.g. `"ISA"`, `"GS"`, `"ST"`).
+    #[must_use]
     pub fn tag(&self) -> &str {
         self.tag
     }
 
     /// The data elements of the segment (after the tag), in order.
+    #[must_use]
     pub fn elements(&self) -> &[&'a str] {
         &self.elements
     }
@@ -37,7 +39,9 @@ impl<'a> X12Parser<'a> {
     pub fn new(input: &'a [u8]) -> Result<Self, DocError> {
         // ISA is always 106 bytes with fixed positions
         if input.len() < 106 {
-            return Err(DocError::invalid_format("X12 input too short for ISA header"));
+            return Err(DocError::invalid_format(
+                "X12 input too short for ISA header",
+            ));
         }
         if &input[..3] != b"ISA" {
             return Err(DocError::invalid_format("X12 input must start with ISA"));
@@ -79,7 +83,7 @@ impl<'a> Iterator for X12Parser<'a> {
             Err(_) => {
                 return Some(Err(DocError::invalid_format(
                     "segment contains non-UTF-8 bytes",
-                )))
+                )));
             }
         };
 

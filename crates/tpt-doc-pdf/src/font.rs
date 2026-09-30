@@ -27,12 +27,13 @@ pub enum Font {
     CourierBoldOblique,
     /// Symbol.
     Symbol,
-    /// ZapfDingbats.
+    /// `ZapfDingbats`.
     ZapfDingbats,
 }
 
 impl Font {
     /// The PDF name string for this font (e.g. `"Helvetica"`).
+    #[must_use]
     pub fn pdf_name(self) -> &'static str {
         match self {
             Self::Helvetica => "Helvetica",

@@ -37,11 +37,13 @@ pub struct ValidationReport {
 
 impl ValidationReport {
     /// Returns `true` if there are no validation issues.
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         self.issues.is_empty()
     }
 
     /// All validation issues found.
+    #[must_use]
     pub fn issues(&self) -> &[ValidationIssue] {
         &self.issues
     }
@@ -67,4 +69,53 @@ pub trait Validate {
     /// Unlike returning a single error, this method collects *all* issues so
     /// callers can surface complete feedback in one pass.
     fn validate(&self) -> ValidationReport;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_report_is_valid() {
+        let report = ValidationReport::default();
+        assert!(report.is_valid());
+        assert!(report.issues().is_empty());
+    }
+
+    #[test]
+    fn push_records_path_and_message() {
+        let mut report = ValidationReport::default();
+        report.push("/patient/name/0", "must not be empty");
+        assert!(!report.is_valid());
+        let issues = report.issues();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].field_path, "/patient/name/0");
+        assert_eq!(issues[0].message, "must not be empty");
+    }
+
+    #[test]
+    fn merge_preserves_order_and_content() {
+        let mut base = ValidationReport::default();
+        base.push("/a", "first");
+        let mut other = ValidationReport::default();
+        other.push("/b", "second");
+        other.push("/c", "third");
+
+        base.merge(other);
+        let paths: Vec<_> = base
+            .issues()
+            .iter()
+            .map(|i| i.field_path.as_str())
+            .collect();
+        assert_eq!(paths, ["/a", "/b", "/c"]);
+        assert!(!base.is_valid());
+    }
+
+    #[test]
+    fn merging_empty_report_is_noop() {
+        let mut base = ValidationReport::default();
+        base.push("/a", "kept");
+        base.merge(ValidationReport::default());
+        assert_eq!(base.issues().len(), 1);
+    }
 }

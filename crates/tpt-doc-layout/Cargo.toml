@@ -18,3 +18,4 @@ tpt-doc-pdf   = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 insta = { workspace = true }
+flate2 = { workspace = true }

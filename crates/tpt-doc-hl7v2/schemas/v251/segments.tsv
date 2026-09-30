@@ -1,0 +1,27 @@
+# HL7 v2.5.1 segment field requirement table (subset).
+# Columns: segment<TAB>field<TAB>req<TAB>name
+MSH	3	O	Sending Application
+MSH	4	O	Sending Facility
+MSH	5	O	Receiving Application
+MSH	6	O	Receiving Facility
+MSH	7	O	Date/Time of Message
+MSH	9	M	Message Type
+MSH	10	M	Message Control ID
+MSH	11	M	Processing ID
+MSH	12	M	Version ID
+EVN	2	M	Recorded Date/Time
+PID	3	M	Patient Identifier List
+PID	5	M	Patient Name
+PID	7	O	Date/Time of Birth
+PID	8	O	Administrative Sex
+PV1	2	M	Patient Class
+PV1	3	O	Assigned Patient Location
+OBR	4	M	Universal Service Identifier
+OBR	16	O	Ordering Provider
+OBX	2	M	Value Type
+OBX	3	M	Observation Identifier
+OBX	5	O	Observation Value
+NTE	3	M	Comment
+AL1	2	M	Allergen Type Code
+AL1	3	M	Allergen Code/Mnemonic/Description
+DG1	3	M	Diagnosis Code

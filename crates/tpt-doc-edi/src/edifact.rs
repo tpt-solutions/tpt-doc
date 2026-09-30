@@ -9,11 +9,13 @@ pub struct Segment<'a> {
 
 impl<'a> Segment<'a> {
     /// The three-character segment tag (e.g. `"UNB"`, `"LIN"`).
+    #[must_use]
     pub fn tag(&self) -> &str {
         self.tag
     }
 
     /// The data elements of the segment, in order.
+    #[must_use]
     pub fn elements(&self) -> &[&'a str] {
         &self.elements
     }
@@ -30,9 +32,9 @@ pub struct EdifactParser<'a> {
     /// Element separator (default `+`).
     elem_sep: u8,
     /// Component data element separator (default `:`).
-    _comp_sep: u8,
+    comp_sep: u8,
     /// Release character (default `?`).
-    _release: u8,
+    release: u8,
 }
 
 impl<'a> EdifactParser<'a> {
@@ -40,14 +42,15 @@ impl<'a> EdifactParser<'a> {
     ///
     /// If the message starts with a `UNA` service string advice, delimiters
     /// are read from it automatically.
+    #[must_use]
     pub fn new(input: &'a [u8]) -> Self {
         let mut parser = Self {
             input,
             pos: 0,
             seg_term: b'\'',
             elem_sep: b'+',
-            _comp_sep: b':',
-            _release: b'?',
+            comp_sep: b':',
+            release: b'?',
         };
         parser.try_parse_una();
         parser
@@ -57,10 +60,10 @@ impl<'a> EdifactParser<'a> {
     fn try_parse_una(&mut self) {
         if self.input.len() >= 9 && &self.input[..3] == b"UNA" {
             // UNA:+.? ' — positions 3-8 are the six service characters
-            self._comp_sep = self.input[3];
+            self.comp_sep = self.input[3];
             self.elem_sep = self.input[4];
             // pos 5 is decimal mark (ignored for delimiter purposes)
-            self._release = self.input[6];
+            self.release = self.input[6];
             // pos 7 is reserved
             self.seg_term = self.input[8];
             self.pos = 9;
@@ -91,13 +94,10 @@ impl<'a> EdifactParser<'a> {
         }
 
         // Convert to str (EDIFACT is typically ASCII/ISO 8859)
-        let seg_str = match std::str::from_utf8(seg_bytes) {
-            Ok(s) => s,
-            Err(_) => {
-                return Some(Err(DocError::invalid_format(
-                    "segment contains non-UTF-8 bytes",
-                )))
-            }
+        let Ok(seg_str) = std::str::from_utf8(seg_bytes) else {
+            return Some(Err(DocError::invalid_format(
+                "segment contains non-UTF-8 bytes",
+            )));
         };
 
         if seg_str.is_empty() {
@@ -131,7 +131,8 @@ mod tests {
 
     #[test]
     fn parse_basic_segments() {
-        let msg = b"UNB+UNOA:1+SENDER+RECEIVER+200101:0900+1'UNH+1+ORDERS:D:96A:UN'UNT+2+1'UNZ+1+1'";
+        let msg =
+            b"UNB+UNOA:1+SENDER+RECEIVER+200101:0900+1'UNH+1+ORDERS:D:96A:UN'UNT+2+1'UNZ+1+1'";
         let parser = EdifactParser::new(msg);
         let segs: Vec<_> = parser.collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(segs.len(), 4);

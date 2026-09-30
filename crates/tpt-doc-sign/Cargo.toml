@@ -16,6 +16,7 @@ tpt-doc-core = { workspace = true }
 tpt-doc-pdf   = { workspace = true }
 ring = { workspace = true }
 x509-parser = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

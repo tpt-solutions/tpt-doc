@@ -6,7 +6,9 @@
 //! entries and yields rows via an [`Iterator`], keeping peak memory proportional
 //! to a single row, not the entire workbook.
 
+/// CSV reading and writing.
 pub mod csv;
+/// Streaming OOXML `.xlsx` reading and writing.
 pub mod xlsx;
 
 pub use csv::{CsvReader, CsvWriter};

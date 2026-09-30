@@ -15,6 +15,9 @@
 - [tpt-doc-pdf](crates/pdf.md)
 - [tpt-doc-sign](crates/sign.md)
 - [tpt-doc-layout](crates/layout.md)
+- [tpt-doc-word](crates/word.md)
+- [tpt-doc-ubl](crates/ubl.md)
+- [tpt-doc-hl7v2](crates/hl7v2.md)
 
 # Reference
 
