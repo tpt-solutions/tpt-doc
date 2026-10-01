@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>urn:cen.eu:en16931:2017</cbc:CustomizationID>
+  <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
+  <cbc:ID>INV-PEPPOL-001</cbc:ID>
+  <cbc:IssueDate>2026-01-15</cbc:IssueDate>
+  <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+  <cbc:DocumentCurrencyCode>NZD</cbc:DocumentCurrencyCode>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="0208">942703567</cbc:EndpointID>
+      <cac:PartyName><cbc:Name>Wellington Data Systems Ltd</cbc:Name></cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:CityName>Wellington</cbc:CityName>
+        <cbc:PostalZone>6011</cbc:PostalZone>
+        <cac:Country><cbc:IdentificationCode>NZ</cbc:IdentificationCode></cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme><cbc:CompanyID>GST-111</cbc:CompanyID></cac:PartyTaxScheme>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="0208">123456789</cbc:EndpointID>
+      <cac:PartyName><cbc:Name>Auckland Analytics Ltd</cbc:Name></cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:CityName>Auckland</cbc:CityName>
+        <cbc:PostalZone>1010</cbc:PostalZone>
+        <cac:Country><cbc:IdentificationCode>NZ</cbc:IdentificationCode></cac:Country>
+      </cac:PostalAddress>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="NZD">63.00</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="NZD">420.00</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="NZD">63.00</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>15.0</cbc:Percent>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:TaxExclusiveAmount currencyID="NZD">420.00</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="NZD">483.00</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="NZD">483.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity>2</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="NZD">300.00</cbc:LineExtensionAmount>
+    <cac:Item><cbc:Name>Consulting</cbc:Name></cac:Item>
+    <cac:Price><cbc:PriceAmount currencyID="NZD">150.00</cbc:PriceAmount></cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>2</cbc:ID>
+    <cbc:InvoicedQuantity>12</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="NZD">120.00</cbc:LineExtensionAmount>
+    <cac:Item><cbc:Name>Hosting</cbc:Name></cac:Item>
+    <cac:Price><cbc:PriceAmount currencyID="NZD">10.00</cbc:PriceAmount></cac:Price>
+  </cac:InvoiceLine>
+</Invoice>

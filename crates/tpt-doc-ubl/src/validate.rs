@@ -64,6 +64,48 @@ pub fn validate(invoice: &Invoice) -> Vec<UblValidationError> {
         ));
     }
 
+    // EN 16931 BR-01 / PEPPOL BIS: the specification identifier (BT-24).
+    if invoice.customization_id.trim().is_empty() {
+        errors.push(UblValidationError::new(
+            "BR-01",
+            "cbc:CustomizationID",
+            "an invoice shall have a specification identifier (customization ID)",
+        ));
+    }
+    // PEPPOL-EN16931-R001: business process (profile, BT-23) must be provided.
+    if invoice.profile_id.trim().is_empty() {
+        errors.push(UblValidationError::new(
+            "PEPPOL-EN16931-R001",
+            "cbc:ProfileID",
+            "a PEPPOL invoice shall have a business process (profile) identifier",
+        ));
+    }
+    // The supplier legal name (BR-CO-09: buyer/seller names) and the
+    // PEPPOL endpoint identifiers must be present.
+    for (role, party) in [
+        ("supplier", &invoice.supplier),
+        ("customer", &invoice.customer),
+    ] {
+        if party.name.trim().is_empty() {
+            errors.push(UblValidationError::new(
+                "BR-CO-09",
+                "cac:PartyName/cbc:Name",
+                format!("the {role} party shall have a name"),
+            ));
+        }
+        if party
+            .endpoint_id
+            .as_deref()
+            .is_none_or(|e| e.trim().is_empty())
+        {
+            errors.push(UblValidationError::new(
+                "PEPPOL-EN16931-R062",
+                "cbc:EndpointID",
+                format!("the {role} party shall have a PEPPOL endpoint identifier"),
+            ));
+        }
+    }
+
     let line_sum = round2(invoice.lines.iter().map(|l| l.line_extension_amount).sum());
     if line_sum != round2(invoice.monetary_total.tax_exclusive) {
         errors.push(UblValidationError::new(
@@ -134,7 +176,7 @@ mod tests {
                 ..Address::default()
             }),
             tax_id: None,
-            endpoint_id: None,
+            endpoint_id: Some("0208:942703567".to_owned()),
             name: name.to_owned(),
         }
     }

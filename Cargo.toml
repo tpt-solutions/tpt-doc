@@ -33,7 +33,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 csv = "1"
 memchr = "2"
 flate2 = "1"
-time = { version = "0.3", features = ["formatting", "parsing", "serde"] }
+time = { version = "0.3", features = ["formatting", "parsing", "serde", "macros"] }
 ring = "0.17"
 x509-parser = "0.16"
 base64 = "0.22"
