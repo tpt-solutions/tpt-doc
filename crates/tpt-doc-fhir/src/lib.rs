@@ -1,3 +1,18 @@
+//! # Examples
+//!
+//! ```
+//! use tpt_doc_fhir::prelude::*;
+//!
+//! // `build()` is only available once the mandatory fields are set.
+//! let patient = Patient::builder()
+//!     .id("nz-12345")
+//!     .name(HumanName::new("Smith", "John"))
+//!     .build();
+//! let bytes = patient.to_json()?;
+//! let json = String::from_utf8_lossy(&bytes);
+//! assert!(json.contains(r#""resourceType": "Patient""#));
+//! # Ok::<(), tpt_doc_fhir::FhirValidationError>(())
+//! ```
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::pedantic)]
 //! HL7 FHIR R5 typed parsing, validation, and serialization.

@@ -1,3 +1,13 @@
+//! # Examples
+//!
+//! ```
+//! use tpt_doc_layout::Renderer;
+//!
+//! let html = "<h1>Annual Report</h1><p>FY2026 results.</p>";
+//! let pdf = Renderer::new().render_html(html)?;
+//! assert!(pdf.starts_with(b"%PDF-1.7"));
+//! # Ok::<(), tpt_doc_core::DocError>(())
+//! ```
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::pedantic)]
 //! Minimal, deterministic, headless HTML/CSS-to-PDF layout engine.

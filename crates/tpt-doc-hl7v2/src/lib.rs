@@ -1,3 +1,15 @@
+//! # Examples
+//!
+//! ```
+//! use tpt_doc_hl7v2::prelude::*;
+//!
+//! let message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|MSG1|P|2.5.1\rPID|1||12345";
+//! let segments: Vec<_> = Hl7Parser::new(message)
+//!     .collect::<Result<_, _>>()?;
+//! assert_eq!(segments[0].component(9, 1), Some("ADT"));
+//! assert_eq!(segments[1].field(3), Some("12345"));
+//! # Ok::<(), tpt_doc_core::DocError>(())
+//! ```
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::pedantic)]
 //! Streaming HL7 v2.x (pipe-delimited) message parser and encoder.

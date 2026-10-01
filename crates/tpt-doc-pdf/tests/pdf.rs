@@ -185,6 +185,26 @@ fn page_one_text_survives_content_stream_compression() {
 }
 
 #[test]
+fn attached_file_is_embedded_and_registered() {
+    let mut doc = Document::new();
+    let font = doc.embed_builtin_font(Font::Helvetica);
+    let mut page = Page::a4();
+    page.text("with attachment", font, 12.0, (72.0, 700.0));
+    doc.add_page(page);
+    doc.attach_file("factur-x.xml", "text/xml", b"<Invoice/>".to_vec());
+    let bytes = doc.write().expect("write");
+
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    // Catalog registers /AF and the EmbeddedFiles name tree.
+    assert!(text.contains("/AF ["), "catalog /AF missing");
+    assert!(text.contains("/EmbeddedFiles"), "name tree missing");
+    assert!(text.contains("(factur-x.xml)"), "filespec name missing");
+    assert!(text.contains("/AFRelationship /Data"));
+    // The payload bytes are embedded verbatim.
+    assert!(bytes.windows(10).any(|w| w == b"<Invoice/>"));
+}
+
+#[test]
 fn deterministic_output_is_byte_identical() {
     let a = sample_document().write().expect("write a");
     let b = sample_document().write().expect("write b");

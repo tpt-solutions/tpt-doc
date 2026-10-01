@@ -1,3 +1,13 @@
+//! # Examples
+//!
+//! ```
+//! use tpt_doc_core::BufSlice;
+//!
+//! let buf = BufSlice::new(b"document bytes");
+//! assert_eq!(buf.as_bytes(), b"document bytes");
+//! let (head, tail) = buf.split_at(8);
+//! assert_eq!(head.as_bytes(), b"document");
+//! ```
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::pedantic)]

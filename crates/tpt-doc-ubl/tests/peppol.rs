@@ -130,3 +130,29 @@ mod proptests {
         }
     }
 }
+
+#[cfg(feature = "facturx")]
+#[test]
+fn invoice_xml_attaches_to_pdf_as_facturx() {
+    use tpt_doc_pdf::{Document, Font, Page};
+
+    let invoice = Invoice::from_xml(&fixture_bytes()).expect("parse fixture");
+    let mut doc = Document::new();
+    let font = doc.embed_builtin_font(Font::Helvetica);
+    let mut page = Page::a4();
+    page.text("Invoice INV-PEPPOL-001", font, 12.0, (72.0, 700.0));
+    doc.add_page(page);
+
+    tpt_doc_ubl::invoice::facturx::attach_xml(&invoice, &mut doc).expect("attach");
+    let bytes = doc.write().expect("write");
+
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    assert!(text.contains("(factur-x.xml)"), "file name missing");
+    assert!(text.contains("/AFRelationship /Data"));
+    // The invoice XML payload is embedded verbatim.
+    let xml = invoice.to_xml().expect("xml");
+    assert!(
+        bytes.windows(32).any(|w| w == &xml[..32]),
+        "embedded payload mismatch"
+    );
+}

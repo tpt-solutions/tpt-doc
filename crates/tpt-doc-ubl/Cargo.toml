@@ -17,6 +17,13 @@ quick-xml = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
+tpt-doc-pdf = { workspace = true, optional = true }
+
+[features]
+default = []
+# Factur-X/ZUGFeRD hybrid: attach the UBL invoice XML to a PDF document
+# (electronic invoice embedding per PDF 2.0 associated files).
+facturx = ["dep:tpt-doc-pdf"]
 
 [dev-dependencies]
 proptest = { workspace = true }

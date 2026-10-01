@@ -732,3 +732,35 @@ mod tests {
         assert!(Invoice::from_xml(b"not xml").is_err());
     }
 }
+
+/// Factur-X/ZUGFeRD hybrid PDF+XML support: the UBL invoice XML is attached
+/// to a PDF document as an associated file (PDF 2.0 §7.11.3), the mechanism
+/// `ZUGFeRD` 2.x and `Factur-X` 1.0 use for e-invoice embedding.
+///
+/// Full `Factur-X` compliance additionally requires PDF/A-3 with the
+/// Factur-X XMP extension schema; this module implements the attachment
+/// mechanism and naming conventions, with PDF/A conformance left to the
+/// caller.
+#[cfg(feature = "facturx")]
+pub mod facturx {
+    use super::Invoice;
+    use tpt_doc_core::DocError;
+    use tpt_doc_pdf::Document;
+
+    /// The conventional file name for the embedded invoice XML.
+    pub const FILE_NAME: &str = "factur-x.xml";
+
+    /// Attach this invoice's UBL XML to a PDF document.
+    ///
+    /// The XML produced by [`Invoice::to_xml`] is embedded under
+    /// `factur-x.xml` with `/AFRelationship /Data` and registered in the
+    /// catalog's `/AF` array and `/Names /EmbeddedFiles` tree.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if XML serialization fails.
+    pub fn attach_xml(invoice: &Invoice, document: &mut Document) -> Result<(), DocError> {
+        let xml = invoice.to_xml()?;
+        document.attach_file(FILE_NAME, "text/xml", xml);
+        Ok(())
+    }
+}

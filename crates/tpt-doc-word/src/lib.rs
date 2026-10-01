@@ -1,3 +1,16 @@
+//! # Examples
+//!
+//! ```
+//! use tpt_doc_word::prelude::*;
+//!
+//! let mut doc = DocxDocument::new();
+//! doc.push_paragraph(Paragraph::styled("Heading1", "Quarterly Report"));
+//! doc.push_paragraph(Paragraph::new("Prepared by TPT Solutions."));
+//! let bytes = DocxWriter::write(&doc)?;
+//! let text = DocxReader::extract_text(&bytes)?;
+//! assert!(text.contains("Quarterly Report"));
+//! # Ok::<(), tpt_doc_core::DocError>(())
+//! ```
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::pedantic)]
 //! Pure-Rust `.docx` (OOXML Word) document generation and parsing.

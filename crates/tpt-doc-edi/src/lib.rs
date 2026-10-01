@@ -1,3 +1,15 @@
+//! # Examples
+//!
+//! ```
+//! use tpt_doc_edi::edifact::EdifactParser;
+//!
+//! let message = b"UNB+UNOA:1+SENDER+RECEIVER+260101:0900+1'";
+//! for segment in EdifactParser::new(message) {
+//!     let segment = segment?;
+//!     assert_eq!(segment.tag(), "UNB");
+//! }
+//! # Ok::<(), tpt_doc_core::DocError>(())
+//! ```
 #![forbid(unsafe_code)]
 #![warn(missing_docs, clippy::pedantic)]
 //! EDIFACT and X12 parsing with schema validation and zero-allocation segment streaming.

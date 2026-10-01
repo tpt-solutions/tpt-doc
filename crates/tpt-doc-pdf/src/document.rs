@@ -9,12 +9,26 @@ use crate::image::{Image, ImageFilter};
 use crate::xref::XrefTable;
 use crate::{Font, Page};
 
-/// A PDF document: the root object that owns pages, fonts, and images.
+/// A file attached to the document (PDF 2.0 §7.11.3 associated files).
+#[derive(Debug, Clone)]
+pub struct Attachment {
+    /// File name as shown to readers (e.g. `"factur-x.xml"`).
+    pub name: String,
+    /// MIME subtype encoded into `/Subtype` (e.g. `"text/xml"`); `/` becomes
+    /// the PDF name-escape `#2F`.
+    pub mime_subtype: String,
+    /// The raw file bytes.
+    pub data: Vec<u8>,
+}
+
+/// A PDF document: the root object that owns pages, fonts, images, and
+/// file attachments.
 #[derive(Debug, Default)]
 pub struct Document {
     pages: Vec<Page>,
     fonts: Vec<Font>,
     images: Vec<Image>,
+    attachments: Vec<Attachment>,
 }
 
 impl Document {
@@ -52,6 +66,23 @@ impl Document {
         self.pages.push(page);
     }
 
+    /// Attach a file to the document (e.g. a Factur-X/ZUGFeRD invoice XML).
+    ///
+    /// The attachment is registered in the catalog's `/AF` array and the
+    /// `/Names /EmbeddedFiles` name tree, with `/AFRelationship /Data`.
+    pub fn attach_file(
+        &mut self,
+        name: impl Into<String>,
+        mime_subtype: impl Into<String>,
+        data: Vec<u8>,
+    ) {
+        self.attachments.push(Attachment {
+            name: name.into(),
+            mime_subtype: mime_subtype.into(),
+            data,
+        });
+    }
+
     /// Serialize the document to PDF bytes.
     ///
     /// Layout is deterministic: fixed object numbering, no timestamps, and
@@ -64,17 +95,21 @@ impl Document {
         let mut writer = ObjectWriter::new();
 
         // Object numbering plan:
-        //   1: Catalog, 2: Pages, 3..: fonts, then images,
-        //   then per page: page object + content stream.
+        //   1: Catalog, 2: Pages, 3..: fonts, then images, then two objects
+        //   per attachment (embedded file + filespec), then per page: page
+        //   object + content stream.
         #[allow(clippy::cast_possible_truncation)] // object counts far below u32::MAX
         let font_ids = 3u32;
         #[allow(clippy::cast_possible_truncation)]
         let image_ids = font_ids + self.fonts.len() as u32;
         #[allow(clippy::cast_possible_truncation)]
-        let page_ids_start = image_ids + self.images.len() as u32;
+        let attachment_ids = image_ids + self.images.len() as u32;
+        #[allow(clippy::cast_possible_truncation)]
+        let page_ids_start = attachment_ids + 2 * self.attachments.len() as u32;
 
-        // 1: Catalog
-        writer.write_object(b"<< /Type /Catalog /Pages 2 0 R >>\n");
+        // 1: Catalog — references the attachment filespecs deterministically.
+        let catalog_body = catalog_body(&self.attachments, attachment_ids);
+        writer.write_object(&catalog_body);
 
         // 2: Pages — the kid ids are deterministic, so this can be written
         // before the page objects themselves.
@@ -119,6 +154,11 @@ impl Document {
             body.extend_from_slice(&image.data);
             body.extend_from_slice(b"\nendstream");
             writer.write_object(&body);
+        }
+
+        // Attachments: embedded file stream + filespec per attachment.
+        for attachment in &self.attachments {
+            write_attachment(&mut writer, attachment);
         }
 
         // Pages and their content streams.
@@ -175,6 +215,67 @@ impl Document {
     }
 }
 
+/// Emit the two objects of one file attachment: the embedded file stream
+/// and its filespec dictionary.
+fn write_attachment(writer: &mut ObjectWriter, attachment: &Attachment) {
+    let subtype = attachment.mime_subtype.replace('/', "#2F");
+    let header = format!(
+        "<< /Type /EmbeddedFile /Subtype /{subtype} /Length {} >>
+stream
+",
+        attachment.data.len()
+    );
+    let mut body = header.into_bytes();
+    body.extend_from_slice(&attachment.data);
+    body.extend_from_slice(
+        b"
+endstream",
+    );
+    writer.write_object(&body);
+
+    let name = pdf_name_string(&attachment.name);
+    let filespec = format!(
+        "<< /Type /Filespec /F ({name}) /UF ({name}) /EF << /F {} 0 R /UF {} 0 R >> /AFRelationship /Data >>
+",
+        writer.next_object_id(),
+        writer.next_object_id()
+    );
+    writer.write_object(filespec.as_bytes());
+}
+
+/// Build the catalog object body. With attachments, the catalog carries the
+/// `/AF` array and the `/Names /EmbeddedFiles` name tree, both referencing
+/// the deterministic filespec object ids.
+fn catalog_body(attachments: &[Attachment], attachment_ids: u32) -> Vec<u8> {
+    if attachments.is_empty() {
+        return b"<< /Type /Catalog /Pages 2 0 R >>
+"
+        .to_vec();
+    }
+    let af: Vec<String> = (0..attachments.len())
+        .map(|i| {
+            #[allow(clippy::cast_possible_truncation)]
+            let filespec_id = attachment_ids + 2 * i as u32 + 1;
+            format!("{filespec_id} 0 R")
+        })
+        .collect();
+    let names: Vec<String> = (0..attachments.len())
+        .map(|i| {
+            #[allow(clippy::cast_possible_truncation)]
+            let filespec_id = attachment_ids + 2 * i as u32 + 1;
+            let name = pdf_name_string(&attachments[i].name);
+            format!("({name}) {filespec_id} 0 R")
+        })
+        .collect();
+    format!(
+        "<< /Type /Catalog /Pages 2 0 R /AF [{}] /Names << /EmbeddedFiles << /Names [{}] >> >> >>
+",
+        af.join(" "),
+        names.join(" ")
+    )
+    .into_bytes()
+}
+
 /// Serializes objects into the output buffer while recording byte-exact
 /// xref offsets.
 struct ObjectWriter {
@@ -193,6 +294,11 @@ impl ObjectWriter {
             xref: XrefTable::new(),
             object_count: 0,
         }
+    }
+
+    /// The object number the next `write_object` call will assign.
+    fn next_object_id(&self) -> u32 {
+        self.object_count + 1
     }
 
     /// Write one indirect object, registering its offset in the xref.
@@ -303,6 +409,21 @@ fn format_number(value: f32) -> String {
             .trim_end_matches('.')
             .to_owned()
     }
+}
+
+/// Escape a name for inclusion in a PDF literal string (parens/backslash).
+fn pdf_name_string(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        match c {
+            '\\' | '(' | ')' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Escape a PDF literal string: backslashes, parens, and non-Latin-1 bytes.
