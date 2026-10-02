@@ -46,8 +46,31 @@ impl<'a> X12Parser<'a> {
         if &input[..3] != b"ISA" {
             return Err(DocError::invalid_format("X12 input must start with ISA"));
         }
+        // ISA01 is the element separator; ISA16 is the component separator.
         let elem_sep = input[3];
+        let comp_sep = input[104];
         let seg_term = input[105];
+
+        if elem_sep == b'\r' || elem_sep == b'\n' || !elem_sep.is_ascii_graphic() {
+            return Err(DocError::invalid_format(format!(
+                "X12 ISA01 element separator {elem_sep:#04x} is not a printable character"
+            )));
+        }
+        if !comp_sep.is_ascii_graphic() {
+            return Err(DocError::invalid_format(format!(
+                "X12 ISA16 component separator {comp_sep:?} is not printable"
+            )));
+        }
+        if comp_sep == elem_sep {
+            return Err(DocError::invalid_format(
+                "X12 ISA16 component separator must differ from the element separator",
+            ));
+        }
+        if seg_term == elem_sep {
+            return Err(DocError::invalid_format(
+                "X12 segment terminator must differ from the element separator",
+            ));
+        }
 
         Ok(Self {
             input,

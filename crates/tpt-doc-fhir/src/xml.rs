@@ -8,6 +8,7 @@ use std::fmt::Write as _;
 
 use quick_xml::XmlVersion;
 use quick_xml::events::BytesStart;
+use tpt_doc_core::DocError;
 /// The FHIR XML namespace URI.
 pub(crate) const FHIR_NS: &str = "http://hl7.org/fhir";
 
@@ -15,9 +16,19 @@ pub(crate) const FHIR_NS: &str = "http://hl7.org/fhir";
 pub(crate) const XML_VERSION: XmlVersion = XmlVersion::Implicit1_0;
 
 /// Append `<{name} value="…"/>` with the text escaped.
-pub(crate) fn value_element(xml: &mut String, name: &str, value: &str) {
-    let escaped = quick_xml::escape::escape(value);
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] if `value` contains a character XML
+/// 1.0 forbids; FHIR XML must be well-formed, and a raw control character
+/// makes it not.
+pub(crate) fn value_element(
+    xml: &mut String,
+    name: &str,
+    value: &str,
+) -> Result<(), DocError> {
+    let escaped = tpt_doc_core::escape_xml_text(value)?;
     let _ = write!(xml, r#"<{name} value="{escaped}"/>"#);
+    Ok(())
 }
 
 /// Append a child element open tag: `<{name}>`.

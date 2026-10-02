@@ -83,15 +83,25 @@ impl<'a> Segment<'a> {
     }
 
     /// Component `m` of field `n` (both 1-based).
+    ///
+    /// Returns `None` for `n == 0` or `m == 0`, since HL7 numbering is 1-based.
     #[must_use]
     pub fn component(&self, n: usize, m: usize) -> Option<&'a str> {
+        if n == 0 || m == 0 {
+            return None;
+        }
         let comp_sep = char::from(self.delims.component);
         self.field(n)?.split(comp_sep).nth(m - 1)
     }
 
     /// Repetition `r` of field `n` (both 1-based).
+    ///
+    /// Returns `None` for `n == 0` or `r == 0`, since HL7 numbering is 1-based.
     #[must_use]
     pub fn repeat(&self, n: usize, r: usize) -> Option<&'a str> {
+        if n == 0 || r == 0 {
+            return None;
+        }
         let repeat_sep = char::from(self.delims.repeat);
         self.field(n)?.split(repeat_sep).nth(r - 1)
     }

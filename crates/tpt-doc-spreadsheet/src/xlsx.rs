@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::io::{Read, Write};
 
 use quick_xml::XmlVersion;
-use quick_xml::escape::escape;
+use tpt_doc_core::escape_xml_text;
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
 use zip::write::SimpleFileOptions;
@@ -422,7 +422,7 @@ impl XlsxWriter {
         let mut zip = ZipWriter::new(cursor);
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
-        let sheet = build_sheet_xml(&self.rows);
+        let sheet = build_sheet_xml(&self.rows)?;
         let parts: [(&str, &str); 5] = [
             ("[Content_Types].xml", CONTENT_TYPES_XML),
             ("_rels/.rels", ROOT_RELS_XML),
@@ -522,7 +522,13 @@ fn cell_ref(column: usize, row: u32) -> String {
     format!("{}{row}", column_name(column))
 }
 
-fn build_sheet_xml(rows: &[Row]) -> String {
+/// Render the worksheet part for `rows`.
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] if a string cell contains a character
+/// that XML 1.0 forbids; emitting it raw would produce a workbook that Excel
+/// refuses to open.
+fn build_sheet_xml(rows: &[Row]) -> Result<String, DocError> {
     let mut xml = String::from(XML_DECL);
     xml.push_str(
         r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>"#,
@@ -533,7 +539,7 @@ fn build_sheet_xml(rows: &[Row]) -> String {
             let r = cell_ref(column, row.index);
             match cell {
                 Cell::String(text) => {
-                    let escaped = escape(text);
+                    let escaped = escape_xml_text(text)?;
                     let preserve = text.starts_with([' ', '\t']) || text.ends_with([' ', '\t']);
                     let _ = write!(
                         xml,
@@ -552,7 +558,7 @@ fn build_sheet_xml(rows: &[Row]) -> String {
                     let _ = write!(xml, r#"<c r="{r}" t="b"><v>{}</v></c>"#, u8::from(*value));
                 }
                 Cell::Error(value) => {
-                    let escaped = escape(value);
+                    let escaped = escape_xml_text(value)?;
                     let _ = write!(xml, r#"<c r="{r}" t="e"><v>{escaped}</v></c>"#);
                 }
                 Cell::Blank => {
@@ -563,7 +569,7 @@ fn build_sheet_xml(rows: &[Row]) -> String {
         xml.push_str("</row>");
     }
     xml.push_str("</sheetData></worksheet>");
-    xml
+    Ok(xml)
 }
 
 #[cfg(test)]
@@ -645,13 +651,46 @@ mod tests {
         assert_eq!(column_index(""), None);
     }
 
-    #[test]
-    fn writer_round_trips_its_own_blank_cells() {
+    /// A string cell containing a control character cannot be represented in XML.
+/// Writing it raw produces a workbook that conforming parsers reject, so the
+/// writer must fail instead.
+#[test]
+fn illegal_control_characters_are_rejected_not_written_raw() {
+    let rows = vec![Row {
+        index: 1,
+        cells: vec![Cell::String("bad\u{1}value".to_owned())],
+    }];
+
+    let err = build_sheet_xml(&rows).expect_err("U+0001 must be rejected");
+    assert!(
+        err.to_string().contains("U+0001"),
+        "error should name the code point: {err}"
+    );
+
+    // The same rejection must surface from the public writer.
+    let mut writer = XlsxWriter::new();
+    writer.push_row(rows[0].clone());
+    let err = writer.finish().expect_err("writer must refuse illegal XML");
+    assert!(err.to_string().contains("U+0001"), "{err}");
+}
+
+#[test]
+fn tab_newline_and_return_are_accepted_in_cells() {
+    let rows = vec![Row {
+        index: 1,
+        cells: vec![Cell::String("a\tb\nc\rd".to_owned())],
+    }];
+    let xml = build_sheet_xml(&rows).expect("these three controls are legal XML");
+    assert!(xml.contains("a\tb\nc\rd"));
+}
+
+#[test]
+fn writer_round_trips_its_own_blank_cells() {
         let rows = vec![Row {
             index: 1,
             cells: vec![Cell::String("a".to_owned()), Cell::Blank, Cell::String("c".to_owned())],
         }];
-        let xml = build_sheet_xml(&rows);
+        let xml = build_sheet_xml(&rows).expect("legal XML");
         let parsed = parse_sheet(&xml);
         assert_eq!(parsed[0].cells, rows[0].cells);
     }
@@ -672,7 +711,7 @@ fn column_names_progress_like_excel() {
             index: 1,
             cells: vec![Cell::String(" <b> & ".to_owned()), Cell::Number(2.5)],
         }];
-        let xml = build_sheet_xml(&rows);
+        let xml = build_sheet_xml(&rows).expect("legal XML");
         assert!(xml.contains(r#"<t xml:space="preserve"> &lt;b&gt; &amp; </t>"#));
         assert!(xml.contains(r#"<c r="B1"><v>2.5</v></c>"#));
     }

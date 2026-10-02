@@ -83,22 +83,22 @@ impl Patient {
             &mut xml,
             format_args!(r#"<Patient xmlns="{}">"#, crate::xml::FHIR_NS),
         );
-        crate::xml::value_element(&mut xml, "id", &self.id);
+        crate::xml::value_element(&mut xml, "id", &self.id)?;
         for identifier in &self.identifier {
             crate::xml::open_element(&mut xml, "identifier");
             if let Some(system) = &identifier.system {
-                crate::xml::value_element(&mut xml, "system", system);
+                crate::xml::value_element(&mut xml, "system", system)?;
             }
-            crate::xml::value_element(&mut xml, "value", &identifier.value);
+            crate::xml::value_element(&mut xml, "value", &identifier.value)?;
             crate::xml::close_element(&mut xml, "identifier");
         }
         for name in &self.name {
             crate::xml::open_element(&mut xml, "name");
             if let Some(family) = &name.family {
-                crate::xml::value_element(&mut xml, "family", family);
+                crate::xml::value_element(&mut xml, "family", family)?;
             }
             for given in &name.given {
-                crate::xml::value_element(&mut xml, "given", given);
+                crate::xml::value_element(&mut xml, "given", given)?;
             }
             crate::xml::close_element(&mut xml, "name");
         }
@@ -109,10 +109,10 @@ impl Patient {
                 Gender::Other => "other",
                 Gender::Unknown => "unknown",
             };
-            crate::xml::value_element(&mut xml, "gender", code);
+            crate::xml::value_element(&mut xml, "gender", code)?;
         }
         if let Some(birth_date) = &self.birth_date {
-            crate::xml::value_element(&mut xml, "birthDate", birth_date);
+            crate::xml::value_element(&mut xml, "birthDate", birth_date)?;
         }
         crate::xml::close_element(&mut xml, "Patient");
         Ok(xml.into_bytes())

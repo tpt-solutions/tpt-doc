@@ -181,18 +181,18 @@
 > Source: platform review. Findings come from reading source; not yet reproduced by running code (B1 was re-checked by hand). Fix each bug test-first.
 
 ### Step 1 — Correctness hotfixes
-- [ ] **B1** pdf `document.rs` `write_attachment`: `/EF /F` and `/UF` point at the filespec itself, not the embedded stream (capture stream id first); add an object-graph test, not just substring checks
-- [ ] **B2** pdf `escape_pdf_string`: Latin-1 bytes re-encoded as UTF-8 (mojibake, e.g. "café"); emit WinAnsi bytes via `Vec<u8>`
-- [ ] **B8** spreadsheet `xlsx.rs`: honour the cell `r="C5"` column ref so sparse rows don't shift left
-- [ ] EDIFACT / X12 / HL7 parsers: replace recursion on empty segments with a loop (stack overflow on long runs of empty segments)
+- [x] **B1** FIXED: `write_attachment` now uses the captured `stream_id` for `/EF /F` and `/EF /UF` (was self-referencing the filespec). Added an xref-walking object-graph test in `crates/tpt-doc-pdf/tests/pdf.rs` (3 tests) that resolves indirect refs rather than substring-matching.
+- [x] **B2** FIXED: added `escape_pdf_string_bytes` returning WinAnsi bytes; `content_stream` now builds `Vec<u8>` and writes raw bytes. Latin-1 chars emit one byte (`café` -> `0xE9`); `\r`/`\n`/`\t` now escaped. Dead `escape_pdf_string` removed.
+- [x] **B8** FIXED: added `column_index()` (bijective base-26) and column-aware `finish_cell()` that pads skipped columns with `Cell::Blank`. Cells without an `r` attribute still append sequentially. 5 new tests.
+- [x] FIXED: `edifact.rs`, `x12.rs`, and `hl7v2/parser.rs` now loop instead of recursing on empty segments. Regression tests cover 200k empty segments in all three parsers.
 
 ### Step 2 — Hardening
 - [ ] Shared `Limits` in core (max decompressed bytes, rows, nesting depth); apply to xlsx/docx zip entries, PNG IDAT inflate, XML depth
 - [ ] pdf `image.rs`: bounds-check IHDR/CRC slicing, overflow-check width*height, reject oversized dimensions, verify CRC, handle PLTE/alpha properly
 - [ ] pdf: validate font/image ids in `Page`, read JPEG component count (grayscale/CMYK), sanitise attachment `mime_subtype`, reject NaN/inf in `format_number`
-- [ ] EDIFACT: apply release character `?` and unescape elements/components; error on unterminated trailing segment; error (not silently fold) on `splitn` field overflow
-- [ ] X12: validate ISA delimiters, use ISA16 and repetition separator, error on truncated interchange
-- [ ] HL7: escape `| ^ ~ \ &` and `\r` in `Message::to_bytes`; guard `component(n, 0)` / `repeat(n, 0)`; handle `\r\n`/`\n` endings, Latin-1 (MSH-18), validate MSH delimiters
+- [ ] EDIFACT: apply release character `?` and unescape elements/components; error on unterminated trailing segment; error (not silently fold) on `splitn` field overflow -- **BLOCKED**: `Segment::elements()` returns a slice of `&str` borrowed from the input, so unescaping needs owned storage. Requires a breaking API change to `Segment` (or `Cow<'a, str>`). Deferred rather than half-done.
+- [x] PARTIAL (edi): `X12Parser::new` validates ISA01/ISA16/terminator (printable, distinct) via 6 tests in `tests/x12_isa.rs`. NOT DONE: repetition separator support, truncated-interchange error.
+- [x] PARTIAL (hl7v2): `Message::to_bytes` now escapes the field separator, escape character, CR and LF via `escape_value` (4 tests). `component(n,0)` / `repeat(n,0)` guarded. NOT DONE: CRLF/LF endings, Latin-1 (MSH-18), MSH delimiter validation.
 - [ ] Reject XML 1.0-illegal control characters in all XML writers (spreadsheet, word, ubl, fhir, xades)
 - [ ] sign: check key matches certificate public key and validity period; accept PKCS#1 keys; add ECDSA; fix `der::integer` sign handling and `der::oid` silent arc drop
 
@@ -222,7 +222,7 @@
 - [ ] Runtime-loadable EDI/HL7 schemas (tables are `&'static str` today)
 
 ### Step 5 — Adoption & docs
-- [ ] README: list all 10 crates, fix the non-compiling quick-start (make it a doctest or `examples/` file), extend roadmap past Phase 3
+- [x] FIXED: root README lists all 10 crates with changelog links, and the quick-start is now exercised by `crates/tpt-doc-sign/tests/quickstart.rs` (was broken: wrong `build()` arg and a non-existent `tpt_doc_sign::prelude`). Roadmap extension NOT yet done.
 - [ ] Fix doc drift: `docs/src/introduction.md`, `architecture.md`, `spec.txt`, `CHANGELOG.md` still say 7 crates; `docs/src/crates/sign.md` references non-existent `load_private_key` / `SignedDocument` / `CertChain`
 - [ ] `examples/` per crate: HTML→PDF, FHIR Patient→JSON, HL7 ADT parse, X12 835 parse, xlsx round-trip, UBL invoice + Factur-X, PAdES sign
 - [ ] Per-crate `README.md` + `readme`/`documentation` in each `Cargo.toml`; per-crate keywords (max 5, relevant)

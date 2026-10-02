@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::io::{Read as _, Write as _};
 
-use quick_xml::escape::escape;
+use tpt_doc_core::escape_xml_text;
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
 use zip::write::SimpleFileOptions;
@@ -128,7 +128,7 @@ impl DocxWriter {
         }
         content_types.push_str("</Types>");
 
-        let document = document_xml(doc);
+        let document = document_xml(doc)?;
         let styles = styles_xml(doc);
 
         // Package-level: the main document part.
@@ -176,10 +176,10 @@ impl DocxWriter {
             ("word/settings.xml", SETTINGS_XML.to_owned()),
         ];
         if let Some(header) = doc.header() {
-            parts.push(("word/header1.xml", header_or_footer_xml("w:hdr", header)));
+            parts.push(("word/header1.xml", header_or_footer_xml("w:hdr", header)?));
         }
         if let Some(footer) = doc.footer() {
-            parts.push(("word/footer1.xml", header_or_footer_xml("w:ftr", footer)));
+            parts.push(("word/footer1.xml", header_or_footer_xml("w:ftr", footer)?));
         }
 
         for (name, content) in &parts {
@@ -206,15 +206,15 @@ const SETTINGS_XML: &str = concat!(
 );
 
 /// Serialize the document body to the `word/document.xml` part.
-pub(crate) fn document_xml(doc: &DocxDocument) -> String {
+pub(crate) fn document_xml(doc: &DocxDocument) -> Result<String, DocError> {
     let mut xml = String::from(XML_DECL);
     xml.push_str(
         r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>"#,
     );
     for element in doc.body() {
         match element {
-            BodyElement::Paragraph(p) => paragraph_xml(&mut xml, p),
-            BodyElement::Table(t) => table_xml(&mut xml, t),
+            BodyElement::Paragraph(p) => paragraph_xml(&mut xml, p)?,
+            BodyElement::Table(t) => table_xml(&mut xml, t)?,
         }
     }
     xml.push_str("<w:sectPr>");
@@ -229,22 +229,23 @@ pub(crate) fn document_xml(doc: &DocxDocument) -> String {
         r#"<w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1800" w:bottom="1440" w:left="1800" w:header="708" w:footer="708" w:gutter="0"/>"#,
     );
     xml.push_str("</w:sectPr></w:body></w:document>");
-    xml
+    Ok(xml)
 }
 
-fn paragraph_xml(xml: &mut String, p: &Paragraph) {
+fn paragraph_xml(xml: &mut String, p: &Paragraph) -> Result<(), DocError> {
     xml.push_str("<w:p>");
     if let Some(style_id) = &p.style_id {
-        let escaped = escape(style_id);
+        let escaped = escape_xml_text(style_id)?;
         let _ = write!(xml, r#"<w:pPr><w:pStyle w:val="{escaped}"/></w:pPr>"#);
     }
     for run in p.runs() {
-        run_xml(xml, run);
+        run_xml(xml, run)?;
     }
     xml.push_str("</w:p>");
+    Ok(())
 }
 
-fn run_xml(xml: &mut String, run: &Run) {
+fn run_xml(xml: &mut String, run: &Run) -> Result<(), DocError> {
     xml.push_str("<w:r>");
     let style = &run.style;
     if style.bold || style.italic || style.underline || style.font_size_half_points.is_some() {
@@ -263,7 +264,7 @@ fn run_xml(xml: &mut String, run: &Run) {
         }
         xml.push_str("</w:rPr>");
     }
-    let escaped = escape(&run.text);
+    let escaped = escape_xml_text(&run.text)?;
     let preserve = run.text.starts_with([' ', '\t', '\n']) || run.text.ends_with([' ', '\t', '\n']);
     let _ = write!(
         xml,
@@ -275,9 +276,10 @@ fn run_xml(xml: &mut String, run: &Run) {
         }
     );
     xml.push_str("</w:r>");
+    Ok(())
 }
 
-fn table_xml(xml: &mut String, table: &Table) {
+fn table_xml(xml: &mut String, table: &Table) -> Result<(), DocError> {
     xml.push_str("<w:tbl><w:tblPr>");
     match table.borders {
         BorderStyle::None => {}
@@ -318,14 +320,15 @@ fn table_xml(xml: &mut String, table: &Table) {
         xml.push_str("<w:tr>");
         for (index, cell) in row.cells().iter().enumerate() {
             let width = table.column_widths_twips.get(index).copied();
-            cell_xml(xml, cell, width);
+            cell_xml(xml, cell, width)?;
         }
         xml.push_str("</w:tr>");
     }
     xml.push_str("</w:tbl>");
+    Ok(())
 }
 
-fn cell_xml(xml: &mut String, cell: &Cell, width_twips: Option<u16>) {
+fn cell_xml(xml: &mut String, cell: &Cell, width_twips: Option<u16>) -> Result<(), DocError> {
     xml.push_str("<w:tc><w:tcPr>");
     match width_twips {
         Some(width) => {
@@ -335,18 +338,19 @@ fn cell_xml(xml: &mut String, cell: &Cell, width_twips: Option<u16>) {
     }
     xml.push_str("</w:tcPr>");
     for paragraph in cell.paragraphs() {
-        paragraph_xml(xml, paragraph);
+        paragraph_xml(xml, paragraph)?;
     }
     // A table cell must end with a paragraph; empty cells get one.
     if cell.paragraphs().is_empty() {
         xml.push_str("<w:p/>");
     }
     xml.push_str("</w:tc>");
+    Ok(())
 }
 
-fn header_or_footer_xml(root: &str, text: &str) -> String {
-    let escaped = escape(text);
-    format!(
+fn header_or_footer_xml(root: &str, text: &str) -> Result<String, DocError> {
+    let escaped = escape_xml_text(text)?;
+    Ok(format!(
         concat!(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
             r#"<{root} xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">"#,
@@ -354,8 +358,8 @@ fn header_or_footer_xml(root: &str, text: &str) -> String {
             r#"</{root}>"#
         ),
         root = root,
-        text = escaped
-    )
+            text = escaped
+    ))
 }
 
 /// Build `word/styles.xml` from the styles the document actually uses, plus
@@ -540,7 +544,54 @@ mod tests {
 
     #[test]
     fn document_xml_is_deterministic_for_fixture() {
-        insta::assert_snapshot!(document_xml(&fixture_document()));
+        insta::assert_snapshot!(document_xml(&fixture_document()).expect("fixture is legal XML"));
+    }
+
+    /// A control character cannot be represented in XML, so the writer must
+    /// reject it rather than emit a `.docx` Word cannot open.
+    #[test]
+    fn illegal_control_characters_in_a_run_are_rejected() {
+        let mut doc = DocxDocument::new();
+        doc.push_paragraph(Paragraph::new("bad\u{1}value"));
+
+        let err = DocxWriter::write(&doc).expect_err("U+0001 must be rejected");
+        assert!(
+            err.to_string().contains("U+0001"),
+            "error should name the code point: {err}"
+        );
+    }
+
+    /// The same check must cover text in table cells and headers.
+    #[test]
+    fn illegal_control_characters_in_cells_and_headers_are_rejected() {
+        let mut doc = DocxDocument::new();
+        doc.set_header("head\u{7}er");
+        assert!(
+            DocxWriter::write(&doc)
+                .expect_err("header must be validated")
+                .to_string()
+                .contains("U+0007"),
+            "header control character must be rejected"
+        );
+
+        let mut doc = DocxDocument::new();
+        let mut table = Table::new();
+        table.push_row(Row::new([Cell::new("A\u{1}B")]));
+        doc.push_table(table);
+        assert!(
+            DocxWriter::write(&doc)
+                .expect_err("cell must be validated")
+                .to_string()
+                .contains("U+0001"),
+            "cell control character must be rejected"
+        );
+    }
+
+    #[test]
+    fn tab_newline_and_return_are_accepted_in_runs() {
+        let mut doc = DocxDocument::new();
+        doc.push_paragraph(Paragraph::new("a\tb\nc\rd"));
+        assert!(DocxWriter::write(&doc).is_ok(), "these controls are legal XML");
     }
 
     #[test]

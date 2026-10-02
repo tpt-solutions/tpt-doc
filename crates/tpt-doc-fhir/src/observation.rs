@@ -144,23 +144,23 @@ impl Observation {
             &mut xml,
             format_args!(r#"<Observation xmlns="{}">"#, xml::FHIR_NS),
         );
-        xml::value_element(&mut xml, "id", &self.id);
-        xml::value_element(&mut xml, "status", self.status.code());
+        xml::value_element(&mut xml, "id", &self.id)?;
+        xml::value_element(&mut xml, "status", self.status.code())?;
         xml::open_element(&mut xml, "code");
-        write_concept(&mut xml, &self.code);
+        write_concept(&mut xml, &self.code)?;
         xml::close_element(&mut xml, "code");
         if let Some(subject) = &self.subject {
             xml::open_element(&mut xml, "subject");
-            write_reference(&mut xml, subject);
+            write_reference(&mut xml, subject)?;
             xml::close_element(&mut xml, "subject");
         }
         if let Some(quantity) = &self.value_quantity {
             xml::open_element(&mut xml, "valueQuantity");
-            write_quantity(&mut xml, quantity);
+            write_quantity(&mut xml, quantity)?;
             xml::close_element(&mut xml, "valueQuantity");
         }
         if let Some(effective) = &self.effective_date_time {
-            xml::value_element(&mut xml, "effectiveDateTime", effective);
+            xml::value_element(&mut xml, "effectiveDateTime", effective)?;
         }
         xml::close_element(&mut xml, "Observation");
         Ok(xml.into_bytes())
@@ -347,45 +347,48 @@ impl ObservationFields {
 }
 
 /// Serialize a `CodeableConcept`'s children inside an open `<code>` element.
-fn write_concept(xml: &mut String, concept: &CodeableConcept) {
+fn write_concept(xml: &mut String, concept: &CodeableConcept) -> Result<(), FhirValidationError> {
     for coding in &concept.coding {
         xml::open_element(xml, "coding");
         if let Some(system) = &coding.system {
-            xml::value_element(xml, "system", system);
+            xml::value_element(xml, "system", system)?;
         }
-        xml::value_element(xml, "code", &coding.code);
+        xml::value_element(xml, "code", &coding.code)?;
         if let Some(display) = &coding.display {
-            xml::value_element(xml, "display", display);
+            xml::value_element(xml, "display", display)?;
         }
         xml::close_element(xml, "coding");
     }
     if let Some(text) = &concept.text {
-        xml::value_element(xml, "text", text);
+        xml::value_element(xml, "text", text)?;
     }
+    Ok(())
 }
 
 /// Serialize a `Reference`'s children inside an open `<subject>` element.
-fn write_reference(xml: &mut String, reference: &Reference) {
+fn write_reference(xml: &mut String, reference: &Reference) -> Result<(), FhirValidationError> {
     if let Some(target) = &reference.reference {
-        xml::value_element(xml, "reference", target);
+        xml::value_element(xml, "reference", target)?;
     }
     if let Some(display) = &reference.display {
-        xml::value_element(xml, "display", display);
+        xml::value_element(xml, "display", display)?;
     }
+    Ok(())
 }
 
 /// Serialize a `Quantity`'s children inside an open `valueQuantity` element.
-fn write_quantity(xml: &mut String, quantity: &Quantity) {
-    xml::value_element(xml, "value", &quantity.value.to_string());
+fn write_quantity(xml: &mut String, quantity: &Quantity) -> Result<(), FhirValidationError> {
+    xml::value_element(xml, "value", &quantity.value.to_string())?;
     if let Some(unit) = &quantity.unit {
-        xml::value_element(xml, "unit", unit);
+        xml::value_element(xml, "unit", unit)?;
     }
     if let Some(system) = &quantity.system {
-        xml::value_element(xml, "system", system);
+        xml::value_element(xml, "system", system)?;
     }
     if let Some(code) = &quantity.code {
-        xml::value_element(xml, "code", code);
+        xml::value_element(xml, "code", code)?;
     }
+    Ok(())
 }
 
 // --- Type-state builder enforcing both mandatory fields ---

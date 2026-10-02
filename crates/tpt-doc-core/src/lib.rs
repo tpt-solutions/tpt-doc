@@ -24,7 +24,10 @@ pub mod buf;
 pub mod error;
 /// Shared reader/writer/validation traits.
 pub mod traits;
+/// XML character legality and entity escaping.
+pub mod xml;
 
 pub use buf::BufSlice;
 pub use error::DocError;
 pub use traits::{DocReader, DocWriter, Validate, ValidationReport};
+pub use xml::{escape_xml_text, is_xml_char, validate_xml_chars};

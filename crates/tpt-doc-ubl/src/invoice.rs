@@ -1,4 +1,4 @@
-use quick_xml::escape::escape;
+use tpt_doc_core::escape_xml_text;
 use serde::{Deserialize, Serialize};
 use tpt_doc_core::DocError;
 
@@ -137,39 +137,39 @@ impl Invoice {
             xml,
             r#"<{root} xmlns="urn:oasis:names:specification:ubl:schema:xsd:{root}-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">"#
         );
-        cbc(&mut xml, "CustomizationID", &self.customization_id);
-        cbc(&mut xml, "ProfileID", &self.profile_id);
-        cbc(&mut xml, "ID", &self.id);
+        cbc(&mut xml, "CustomizationID", &self.customization_id)?;
+        cbc(&mut xml, "ProfileID", &self.profile_id)?;
+        cbc(&mut xml, "ID", &self.id)?;
         let issue_date = self
             .issue_date
             .format(&DATE_FORMAT)
             .map_err(|e| DocError::invalid_format(format!("IssueDate formatting failed: {e}")))?;
-        cbc(&mut xml, "IssueDate", &issue_date);
+        cbc(&mut xml, "IssueDate", &issue_date)?;
         cbc(
             &mut xml,
             "InvoiceTypeCode",
             &self.type_code.value().to_string(),
-        );
-        cbc(&mut xml, "DocumentCurrencyCode", &self.currency);
+        )?;
+        cbc(&mut xml, "DocumentCurrencyCode", &self.currency)?;
 
         party_block(
             &mut xml,
             "AccountingSupplierParty",
             &self.supplier,
             &self.currency,
-        );
+        )?;
         party_block(
             &mut xml,
             "AccountingCustomerParty",
             &self.customer,
             &self.currency,
-        );
+        )?;
 
         let tax_total = round2(self.tax_subtotals.iter().map(|t| t.tax_amount).sum());
         xml.push_str("<cac:TaxTotal>");
-        cbc_amount(&mut xml, "TaxAmount", tax_total, &self.currency);
+        cbc_amount(&mut xml, "TaxAmount", tax_total, &self.currency)?;
         for subtotal in &self.tax_subtotals {
-            write_tax_subtotal(&mut xml, subtotal, &self.currency);
+            write_tax_subtotal(&mut xml, subtotal, &self.currency)?;
         }
         xml.push_str("</cac:TaxTotal>");
 
@@ -179,26 +179,26 @@ impl Invoice {
             "TaxExclusiveAmount",
             self.monetary_total.tax_exclusive,
             &self.currency,
-        );
+        )?;
         cbc_amount(
             &mut xml,
             "TaxInclusiveAmount",
             self.monetary_total.tax_inclusive,
             &self.currency,
-        );
+        )?;
         cbc_amount(
             &mut xml,
             "PayableAmount",
             self.monetary_total.payable,
             &self.currency,
-        );
+        )?;
         xml.push_str("</cac:LegalMonetaryTotal>");
 
         for line in &self.lines {
             xml.push_str("<cac:InvoiceLine>");
-            cbc(&mut xml, "ID", &line.id.to_string());
+            cbc(&mut xml, "ID", &line.id.to_string())?;
             let quantity_text = format!("{}", line.quantity);
-            let quantity = escape(&quantity_text);
+            let quantity = escape_xml_text(&quantity_text)?;
             let _ = write!(
                 xml,
                 "<cbc:InvoicedQuantity>{quantity}</cbc:InvoicedQuantity>"
@@ -208,12 +208,12 @@ impl Invoice {
                 "LineExtensionAmount",
                 line.line_extension_amount,
                 &self.currency,
-            );
+            )?;
             xml.push_str("<cac:Item>");
-            cbc(&mut xml, "Name", &line.item_name);
+            cbc(&mut xml, "Name", &line.item_name)?;
             xml.push_str("</cac:Item>");
             xml.push_str("<cac:Price>");
-            cbc_amount(&mut xml, "PriceAmount", line.unit_price, &self.currency);
+            cbc_amount(&mut xml, "PriceAmount", line.unit_price, &self.currency)?;
             xml.push_str("</cac:Price>");
             xml.push_str("</cac:InvoiceLine>");
         }
@@ -322,68 +322,97 @@ const DATE_FORMAT: &[time::format_description::BorrowedFormatItem] =
     time::macros::format_description!("[year]-[month]-[day]");
 
 /// Append `<cbc:{name}>{escaped}</cbc:{name}>`.
-fn cbc(xml: &mut String, name: &str, value: &str) {
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] if `value` contains a character XML
+/// 1.0 forbids; emitting it raw yields an invoice that PEPPOL receivers reject.
+fn cbc(xml: &mut String, name: &str, value: &str) -> Result<(), DocError> {
     use std::fmt::Write as _;
-    let escaped = escape(value);
+    let escaped = escape_xml_text(value)?;
     let _ = write!(xml, "<cbc:{name}>{escaped}</cbc:{name}>");
+    Ok(())
 }
 
 /// Append `<cbc:{name} currencyID="{ccy}">{amount:.2}</cbc:{name}>`.
-fn cbc_amount(xml: &mut String, name: &str, amount: f64, currency: &str) {
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] if `currency` contains an illegal
+/// character.
+fn cbc_amount(xml: &mut String, name: &str, amount: f64, currency: &str) -> Result<(), DocError> {
     use std::fmt::Write as _;
+    let escaped_currency = escape_xml_text(currency)?;
     let _ = write!(
         xml,
-        "<cbc:{name} currencyID=\"{}\">{:.2}</cbc:{name}>",
-        escape(currency),
+        "<cbc:{name} currencyID=\"{escaped_currency}\">{:.2}</cbc:{name}>",
         round2(amount)
     );
+    Ok(())
 }
 
 /// Emit one `<cac:TaxSubtotal>` block with its tax category.
-fn write_tax_subtotal(xml: &mut String, subtotal: &TaxSubtotal, currency: &str) {
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] if any emitted text contains an
+/// illegal character.
+fn write_tax_subtotal(
+    xml: &mut String,
+    subtotal: &TaxSubtotal,
+    currency: &str,
+) -> Result<(), DocError> {
     xml.push_str("<cac:TaxSubtotal>");
-    cbc_amount(xml, "TaxableAmount", subtotal.taxable_amount, currency);
-    cbc_amount(xml, "TaxAmount", subtotal.tax_amount, currency);
+    cbc_amount(xml, "TaxableAmount", subtotal.taxable_amount, currency)?;
+    cbc_amount(xml, "TaxAmount", subtotal.tax_amount, currency)?;
     xml.push_str("<cac:TaxCategory>");
-    cbc(xml, "ID", subtotal.category.code());
+    cbc(xml, "ID", subtotal.category.code())?;
     let percent = format!("{}", subtotal.rate_percent);
-    cbc(xml, "Percent", &percent);
+    cbc(xml, "Percent", &percent)?;
     xml.push_str("</cac:TaxCategory>");
     xml.push_str("</cac:TaxSubtotal>");
+    Ok(())
 }
 
 /// Emit an `Accounting{Supplier,Customer}Party` block.
-fn party_block(xml: &mut String, wrapper: &str, party: &Party, currency: &str) {
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] if any party text contains an illegal
+/// character.
+fn party_block(
+    xml: &mut String,
+    wrapper: &str,
+    party: &Party,
+    currency: &str,
+) -> Result<(), DocError> {
     use std::fmt::Write as _;
     let _ = write!(xml, "<cac:{wrapper}><cac:Party>");
     if let Some(endpoint) = &party.endpoint_id {
-        cbc(xml, "EndpointID", endpoint);
+        cbc(xml, "EndpointID", endpoint)?;
     }
     xml.push_str("<cac:PartyName>");
-    cbc(xml, "Name", &party.name);
+    cbc(xml, "Name", &party.name)?;
     xml.push_str("</cac:PartyName>");
     if let Some(address) = &party.address {
         xml.push_str("<cac:PostalAddress>");
         if let Some(city) = &address.city {
-            cbc(xml, "CityName", city);
+            cbc(xml, "CityName", city)?;
         }
         if let Some(postal) = &address.postal_code {
-            cbc(xml, "PostalZone", postal);
+            cbc(xml, "PostalZone", postal)?;
         }
         if let Some(country) = &address.country_code {
             xml.push_str("<cac:Country>");
-            cbc(xml, "IdentificationCode", country);
+            cbc(xml, "IdentificationCode", country)?;
             xml.push_str("</cac:Country>");
         }
         xml.push_str("</cac:PostalAddress>");
     }
     if let Some(tax_id) = &party.tax_id {
         xml.push_str("<cac:PartyTaxScheme>");
-        cbc(xml, "CompanyID", tax_id);
+        cbc(xml, "CompanyID", tax_id)?;
         let _ = currency;
         xml.push_str("</cac:PartyTaxScheme>");
     }
     let _ = write!(xml, "</cac:Party></cac:{wrapper}>");
+    Ok(())
 }
 
 /// Scratch state accumulated while parsing an UBL invoice document.
@@ -724,6 +753,49 @@ mod tests {
         assert!(text.contains("<cbc:InvoiceTypeCode>381</cbc:InvoiceTypeCode>"));
         let restored = Invoice::from_xml(text.as_bytes()).expect("parse");
         assert_eq!(restored, credit);
+    }
+
+    /// A control character cannot be represented in XML. Writing it raw yields an
+/// invoice that PEPPOL receivers reject, so serialization must fail instead.
+#[test]
+    fn illegal_control_characters_are_rejected_not_written_raw() {
+        let date = time::Date::from_calendar_date(2026, time::Month::January, 15).expect("valid date");
+
+        // In the supplier name.
+        let invoice = Invoice::new(
+            "INV-CTRL",
+            InvoiceTypeCode::Invoice,
+            date,
+            Party::new("Bad\u{1}Supplier"),
+            Party::new("Customer"),
+        );
+        let err = invoice.to_xml().expect_err("U+0001 in a party name");
+        assert!(err.to_string().contains("U+0001"), "{err}");
+
+        // In a line item name.
+        let mut invoice = Invoice::new(
+            "INV-CTRL2",
+            InvoiceTypeCode::Invoice,
+            date,
+            Party::new("Supplier"),
+            Party::new("Customer"),
+        );
+        invoice.push_line(InvoiceLine::new(1, "Bad\u{2}Item", 1.0, 10.0));
+        let err = invoice.to_xml().expect_err("U+0002 in a line name");
+        assert!(err.to_string().contains("U+0002"), "{err}");
+    }
+
+    #[test]
+    fn tab_newline_and_return_are_accepted() {
+        let date = time::Date::from_calendar_date(2026, time::Month::January, 15).expect("valid date");
+        let invoice = Invoice::new(
+            "INV-WS",
+            InvoiceTypeCode::Invoice,
+            date,
+            Party::new("a\tb\nc\rd"),
+            Party::new("Customer"),
+        );
+        assert!(invoice.to_xml().is_ok(), "these controls are legal XML");
     }
 
     #[test]

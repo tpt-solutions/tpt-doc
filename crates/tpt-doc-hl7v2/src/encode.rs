@@ -100,21 +100,71 @@ impl Message {
         &self.segments
     }
 
-    /// Serialize the message to `\r`-terminated, `\r`-delimited bytes.
+/// Serialize the message to `\r`-terminated, `\r`-delimited bytes.
+    ///
+    /// Field values are escaped via [`escape_value`], so a delimiter inside
+    /// data cannot corrupt the message structure. MSH-2 is left verbatim
+    /// because it *is* the encoding-characters field.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let sep = self.delims.field;
+        let sep = self.delims.field as char;
         let mut out = Vec::new();
         for seg in &self.segments {
             out.extend_from_slice(seg.tag.as_bytes());
-            out.push(sep);
-            out.extend_from_slice(seg.fields.join(&(sep as char).to_string()).as_bytes());
+            out.push(self.delims.field);
+            let is_msh = seg.tag == "MSH";
+            let fields: Vec<String> = seg
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(index, field)| {
+                    // MSH-2 is the encoding-characters field itself and must
+                    // be written verbatim.
+                    if is_msh && index == 0 {
+                        field.clone()
+                    } else {
+                        escape_value(field, self.delims)
+                    }
+                })
+                .collect();
+            out.extend_from_slice(fields.join(&sep.to_string()).as_bytes());
             out.push(b'\r');
         }
         out
     }
 }
 
+/// Escape a field value for output, applying the HL7 escape sequences.
+///
+/// Only characters that would break the *envelope* are escaped: the segment
+/// terminator `\r`, the field separator, and the escape character itself.
+/// Component (`^`), repetition (`~`), and subcomponent (`&`) separators are
+/// left alone, because a field value is expected to carry them — escaping
+/// `12345^^^NZHPI^MR` would destroy the identifier it encodes.
+///
+/// `\r` and `\n` become `\X0D\` and `\X0A\`; a raw `\r` would otherwise split
+/// the segment, and a raw `\n` is not a legal HL7 byte.
+fn escape_value(value: &str, delims: Delimiters) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        let sequence = if ch == delims.escape as char {
+            Some("\\E\\")
+        } else if ch == delims.field as char {
+            Some("\\F\\")
+        } else {
+            match ch {
+                '\r' => Some("\\X0D\\"),
+                '\n' => Some("\\X0A\\"),
+                _ => None,
+            }
+        };
+        match sequence {
+            Some(escape) => out.push_str(escape),
+            None => out.push(ch),
+        }
+    }
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,6 +206,59 @@ mod tests {
         assert!(lines[0].starts_with("MSH|^~\\&|HIS|ACME|RIS|ACME|"));
         assert_eq!(lines[1], "EVN|A01|20261001120000");
         assert!(lines[2].starts_with("PID|1||12345"));
+    }
+
+    /// A field value containing a delimiter must not be written verbatim, or
+    /// the message structure is destroyed on the wire.
+    #[test]
+    fn delimiters_inside_field_values_are_escaped() {
+        let mut msg = Message::msh(
+            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+        );
+        msg.push_segment("NTE", &["1", r"Surname: O'Fahey | given: A*B"]);
+        let bytes = msg.to_bytes();
+        let text = core::str::from_utf8(&bytes).expect("UTF-8");
+        let nte = text.trim_end_matches('\r').split('\r').nth(1).expect("NTE");
+        assert_eq!(nte, "NTE|1|Surname: O'Fahey \\F\\ given: A*B");
+    }
+
+    #[test]
+    fn every_encoding_character_is_escaped() {
+        let mut msg = Message::msh(
+            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+        );
+        msg.push_segment("NTE", &["1", "a|b^c~d\\e&f"]);
+        let bytes = msg.to_bytes();
+        let text = core::str::from_utf8(&bytes).expect("UTF-8");
+        let nte = text.trim_end_matches('\r').split('\r').nth(1).expect("NTE");
+        // field and escape separators are escaped; ^ ~ & are legitimate component data
+        assert_eq!(nte, "NTE|1|a\\F\\b^c~d\\E\\e&f");
+    }
+
+    /// Carriage returns and newlines inside a value would split the segment.
+    #[test]
+    fn carriage_returns_and_newlines_in_values_are_escaped() {
+        let mut msg = Message::msh(
+            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+        );
+        msg.push_segment("NTE", &["1", "line one\rline two\nline three"]);
+        let bytes = msg.to_bytes();
+        let text = core::str::from_utf8(&bytes).expect("UTF-8");
+        // Exactly two segments: the value did not create extra ones.
+        assert_eq!(text.trim_end_matches('\r').split('\r').count(), 2);
+        assert!(text.contains("line one\\X0D\\line two\\X0A\\line three"));
+    }
+
+    /// The escape character itself must survive a round trip.
+    #[test]
+    fn escape_sequences_are_reversed_on_read() {
+        let mut msg = Message::msh(
+            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+        );
+        msg.push_segment("NTE", &["1", "a|b^c"]);
+        let bytes = msg.to_bytes();
+        let segs: Vec<_> = Hl7Parser::new(&bytes).collect::<Result<Vec<_>, _>>().expect("parse");
+        assert_eq!(segs[1].field(2), Some("a\\F\\b^c"));
     }
 
     #[test]

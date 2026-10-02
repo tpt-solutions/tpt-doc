@@ -32,6 +32,17 @@ impl fmt::Display for FhirValidationError {
 
 impl std::error::Error for FhirValidationError {}
 
+impl From<tpt_doc_core::DocError> for FhirValidationError {
+    /// Wrap a core [`DocError`](tpt_doc_core::DocError) — most often the
+    /// rejection of a character that XML 1.0 forbids — as a FHIR error.
+    fn from(error: tpt_doc_core::DocError) -> Self {
+        Self {
+            field_path: "/".to_owned(),
+            message: error.to_string(),
+        }
+    }
+}
+
 /// Validate cross-field constraints of an [`Observation`] and return a
 /// structured report of every violation found.
 ///

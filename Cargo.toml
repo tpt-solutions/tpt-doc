@@ -42,6 +42,7 @@ insta = "1"
 
 tpt-doc-core = { path = "crates/tpt-doc-core", version = "0.1.0" }
 tpt-doc-pdf   = { path = "crates/tpt-doc-pdf",   version = "0.1.0" }
+tpt-doc-fhir  = { path = "crates/tpt-doc-fhir",  version = "0.1.0" }
 
 [profile.release]
 opt-level = 3
