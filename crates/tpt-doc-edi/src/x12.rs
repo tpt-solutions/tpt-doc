@@ -62,45 +62,49 @@ impl<'a> Iterator for X12Parser<'a> {
     type Item = Result<X12Segment<'a>, DocError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= self.input.len() {
-            return None;
-        }
+        // Loop rather than recurse: an interchange containing a long run of
+        // empty segments would otherwise overflow the stack.
+        loop {
+            if self.pos >= self.input.len() {
+                return None;
+            }
 
         let start = self.pos;
-        let end = memchr::memchr(self.seg_term, &self.input[start..])?;
-        let seg_bytes = &self.input[start..start + end];
-        self.pos = start + end + 1;
+            let end = memchr::memchr(self.seg_term, &self.input[start..])?;
+            let seg_bytes = &self.input[start..start + end];
+            self.pos = start + end + 1;
 
-        // Skip newlines between segments
-        while self.pos < self.input.len()
-            && (self.input[self.pos] == b'\n' || self.input[self.pos] == b'\r')
-        {
-            self.pos += 1;
-        }
-
-        let seg_str = match std::str::from_utf8(seg_bytes) {
-            Ok(s) => s.trim(),
-            Err(_) => {
-                return Some(Err(DocError::invalid_format(
-                    "segment contains non-UTF-8 bytes",
-                )));
+            // Skip newlines between segments
+            while self.pos < self.input.len()
+                && (self.input[self.pos] == b'\n' || self.input[self.pos] == b'\r')
+            {
+                self.pos += 1;
             }
-        };
 
-        if seg_str.is_empty() {
-            return self.next();
+            let seg_str = match std::str::from_utf8(seg_bytes) {
+                Ok(s) => s.trim(),
+                Err(_) => {
+                    return Some(Err(DocError::invalid_format(
+                        "segment contains non-UTF-8 bytes",
+                    )));
+                }
+            };
+
+            if seg_str.is_empty() {
+                continue;
+            }
+
+            let elem_sep = self.elem_sep as char;
+            let mut parts = seg_str.splitn(64, elem_sep);
+            let tag = match parts.next() {
+                Some(t) if !t.is_empty() => t,
+                _ => return Some(Err(DocError::invalid_format("empty segment tag"))),
+            };
+
+            return Some(Ok(X12Segment {
+                tag,
+                elements: parts.collect(),
+            }));
         }
-
-        let elem_sep = self.elem_sep as char;
-        let mut parts = seg_str.splitn(64, elem_sep);
-        let tag = match parts.next() {
-            Some(t) if !t.is_empty() => t,
-            _ => return Some(Err(DocError::invalid_format("empty segment tag"))),
-        };
-
-        Some(Ok(X12Segment {
-            tag,
-            elements: parts.collect(),
-        }))
     }
 }

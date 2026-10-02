@@ -8,7 +8,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords = ["pdf", "document", "generation", "pure-rust", "enterprise"]
-categories = ["encoding", "rendering", "multimedia::encoding"]
+categories = ["encoding", "rendering", "multimedia", "text-processing"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-pdf"
 rust-version.workspace = true
 
 [dependencies]

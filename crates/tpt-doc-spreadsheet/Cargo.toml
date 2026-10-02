@@ -8,7 +8,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords = ["xlsx", "csv", "ooxml", "spreadsheet", "streaming"]
-categories = ["encoding", "parser-implementations", "filesystem"]
+categories = ["encoding", "parser-implementations", "filesystem", "text-processing"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-spreadsheet"
 rust-version.workspace = true
 
 [dependencies]

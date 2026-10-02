@@ -1,4 +1,3 @@
-use std::fmt::Write as _;
 use std::io::Write as _;
 
 use flate2::Compression;
@@ -219,6 +218,9 @@ impl Document {
 /// and its filespec dictionary.
 fn write_attachment(writer: &mut ObjectWriter, attachment: &Attachment) {
     let subtype = attachment.mime_subtype.replace('/', "#2F");
+    // The filespec's /EF must reference the embedded stream written below,
+    // so capture its object id before the stream is registered.
+    let stream_id = writer.next_object_id();
     let header = format!(
         "<< /Type /EmbeddedFile /Subtype /{subtype} /Length {} >>
 stream
@@ -234,11 +236,12 @@ endstream",
     writer.write_object(&body);
 
     let name = pdf_name_string(&attachment.name);
+    // `/F` and `/UF` must point at the embedded stream (object `stream_id`),
+    // not at this filespec dictionary — a self-reference here makes the
+    // attachment unreadable to conforming viewers.
     let filespec = format!(
-        "<< /Type /Filespec /F ({name}) /UF ({name}) /EF << /F {} 0 R /UF {} 0 R >> /AFRelationship /Data >>
+        "<< /Type /Filespec /F ({name}) /UF ({name}) /EF << /F {stream_id} 0 R /UF {stream_id} 0 R >> /AFRelationship /Data >>
 ",
-        writer.next_object_id(),
-        writer.next_object_id()
     );
     writer.write_object(filespec.as_bytes());
 }
@@ -327,7 +330,7 @@ impl ObjectWriter {
 
 /// Render content operations to PDF content-stream text.
 fn content_stream(operations: &[crate::page::ContentOp]) -> Vec<u8> {
-    let mut stream = String::new();
+    let mut stream = Vec::new();
     for op in operations {
         match op {
             crate::page::ContentOp::Text {
@@ -337,15 +340,18 @@ fn content_stream(operations: &[crate::page::ContentOp]) -> Vec<u8> {
                 x,
                 y,
             } => {
-                let _ = writeln!(
+                // The literal string is emitted as WinAnsi bytes, so build the
+                // line as bytes rather than formatting through `String`.
+                let _ = write!(
                     stream,
-                    "BT /F{} {} Tf {} {} Td ({}) Tj ET",
+                    "BT /F{} {} Tf {} {} Td (",
                     font_id + 1,
                     format_number(*size),
                     format_number(*x),
-                    format_number(*y),
-                    escape_pdf_string(content)
+                    format_number(*y)
                 );
+                stream.extend_from_slice(&escape_pdf_string_bytes(content));
+                let _ = writeln!(stream, ") Tj ET");
             }
             crate::page::ContentOp::Image {
                 image_id,
@@ -381,7 +387,7 @@ fn content_stream(operations: &[crate::page::ContentOp]) -> Vec<u8> {
             }
         }
     }
-    stream.into_bytes()
+    stream
 }
 
 /// zlib-compress content at a fixed level for deterministic output.
@@ -426,21 +432,30 @@ fn pdf_name_string(name: &str) -> String {
     out
 }
 
-/// Escape a PDF literal string: backslashes, parens, and non-Latin-1 bytes.
-fn escape_pdf_string(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
+/// Encode text to the `WinAnsi` (`cp1252`) bytes a PDF literal string expects.
+///
+/// The built-in fonts are declared with `/WinAnsiEncoding`, so a literal
+/// string is a byte string, not UTF-8. Characters in `U+0000..=U+00FF` map to
+/// their single Latin-1 byte; anything beyond has no `WinAnsi` glyph and is
+/// replaced with `?` rather than emitted as raw UTF-8 (which would render as
+/// mojibake). Parens and backslashes are escaped per the PDF literal-string
+/// grammar, and so are the whitespace controls `\r`, `\n`, and `\t` so they
+/// cannot terminate the string early.
+fn escape_pdf_string_bytes(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
     for ch in text.chars() {
         match ch {
-            '\\' => escaped.push_str("\\\\"),
-            '(' => escaped.push_str("\\("),
-            ')' => escaped.push_str("\\)"),
-            c if (c as u32) < 0x100 => escaped.push(c),
-            // Beyond Latin-1 the built-in WinAnsi fonts cannot render the
-            // glyph; substitute a placeholder rather than emit mojibake.
-            _ => escaped.push('?'),
+            '\\' => out.extend_from_slice(b"\\\\"),
+            '(' => out.extend_from_slice(b"\\("),
+            ')' => out.extend_from_slice(b"\\)"),
+            '\r' => out.extend_from_slice(b"\\r"),
+            '\n' => out.extend_from_slice(b"\\n"),
+            '\t' => out.extend_from_slice(b"\\t"),
+            c if (c as u32) < 0x100 => out.push(c as u8),
+            _ => out.push(b'?'),
         }
     }
-    escaped
+    out
 }
 
 #[cfg(test)]
@@ -456,10 +471,48 @@ mod tests {
     }
 
     #[test]
-    fn pdf_strings_escape_specials_and_non_latin1() {
-        assert_eq!(escape_pdf_string("a(b)c\\d"), "a\\(b\\)c\\\\d");
-        assert_eq!(escape_pdf_string("café"), "café");
-        assert_eq!(escape_pdf_string("emoji \u{1F600}"), "emoji ?");
+    fn pdf_strings_escape_specials() {
+        assert_eq!(escape_pdf_string_bytes("a(b)c\\d"), b"a\\(b\\)c\\\\d".to_vec());
+    }
+
+    /// Characters in the Latin-1 range must be emitted as a single byte, matching
+    /// the encoding declared by the built-in fonts.
+    /// The built-in fonts use `WinAnsiEncoding`, so `é` is byte `0xE9` and not
+    /// the two UTF-8 bytes `0xC3 0xA9`, which render as mojibake.
+    #[test]
+    fn latin1_is_emitted_as_winansi_bytes() {
+        let encoded = escape_pdf_string_bytes("café");
+        assert_eq!(
+            encoded,
+            vec![b'c', b'a', b'f', 0xE9],
+            "expected WinAnsi bytes, got {encoded:?}"
+        );
+        assert_eq!(encoded.len(), 4, "one byte per character");
+    }
+
+    #[test]
+    fn winansi_high_bytes_survive_special_escaping() {
+        assert_eq!(escape_pdf_string_bytes("(é)"), vec![b'\\', b'(', 0xE9, b'\\', b')']);
+        assert_eq!(escape_pdf_string_bytes("naïve\\path"), {
+            let mut expected = b"na".to_vec();
+            expected.push(0xEF); // ï
+            expected.extend_from_slice(b"ve\\\\path");
+            expected
+        });
+    }
+
+    #[test]
+    fn characters_beyond_winansi_are_substituted() {
+        // U+1F600 has no WinAnsi glyph; a placeholder keeps byte alignment.
+        assert_eq!(escape_pdf_string_bytes("emoji \u{1F600}"), b"emoji ?".to_vec());
+    }
+
+    #[test]
+    fn whitespace_controls_are_escaped() {
+        // An unescaped newline inside a literal string would terminate it.
+        assert_eq!(escape_pdf_string_bytes("a\rb"), b"a\\rb".to_vec());
+        assert_eq!(escape_pdf_string_bytes("a\nb"), b"a\\nb".to_vec());
+        assert_eq!(escape_pdf_string_bytes("a\tb"), b"a\\tb".to_vec());
     }
 
     #[test]

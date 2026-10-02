@@ -74,61 +74,65 @@ impl<'a> Hl7Parser<'a> {
 
     /// Parse the next segment from the input.
     fn next_segment(&mut self) -> Option<Result<Segment<'a>, DocError>> {
-        if self.pos >= self.input.len() {
-            return None;
-        }
-
-        let start = self.pos;
-        let input = self.input;
-        let end = match memchr::memchr(b'\r', &input[start..]) {
-            Some(rel) => start + rel,
-            None => input.len(),
-        };
-        let seg_bytes = &input[start..end];
-        self.pos = end + 1;
-
-        let Ok(seg_str) = core::str::from_utf8(seg_bytes) else {
-            return Some(Err(DocError::invalid_format(
-                "segment contains non-UTF-8 bytes",
-            )));
-        };
-
-        if seg_str.is_empty() {
-            return self.next_segment();
-        }
-
-        // Read delimiters from the message header unless set explicitly.
-        if !self.delims_locked && seg_str.as_bytes().starts_with(b"MSH") {
-            match Self::read_delims_from_msh(seg_bytes) {
-                Ok(d) => self.delims = d,
-                Err(e) => return Some(Err(e)),
+        // Loop rather than recurse: a message containing a long run of empty
+        // segments would otherwise overflow the stack.
+        loop {
+            if self.pos >= self.input.len() {
+                return None;
             }
-            self.delims_locked = true;
-        }
 
-        let field_sep = char::from(self.delims.field);
-        let mut parts = seg_str.splitn(256, field_sep);
-        let tag = match parts.next() {
-            Some(t) if !t.is_empty() => t,
-            _ => return Some(Err(DocError::invalid_format("empty segment tag"))),
-        };
+            let start = self.pos;
+            let input = self.input;
+            let end = match memchr::memchr(b'\r', &input[start..]) {
+                Some(rel) => start + rel,
+                None => input.len(),
+            };
+            let seg_bytes = &input[start..end];
+            self.pos = end + 1;
 
-        let fields: Vec<&str> = if tag == "MSH" {
-            // Preserve standard MSH numbering: MSH-1 is the field separator.
-            let Ok(sep_field) = core::str::from_utf8(&seg_bytes[3..4]) else {
+            let Ok(seg_str) = core::str::from_utf8(seg_bytes) else {
                 return Some(Err(DocError::invalid_format(
-                    "MSH-1 is not a valid UTF-8 character",
+                    "segment contains non-UTF-8 bytes",
                 )));
             };
-            let mut fields = Vec::with_capacity(1 + seg_str.matches(field_sep).count());
-            fields.push(sep_field);
-            fields.extend(parts);
-            fields
-        } else {
-            parts.collect()
-        };
 
-        Some(Ok(Segment::new(tag, fields, self.delims)))
+            if seg_str.is_empty() {
+                continue;
+            }
+
+            // Read delimiters from the message header unless set explicitly.
+            if !self.delims_locked && seg_str.as_bytes().starts_with(b"MSH") {
+                match Self::read_delims_from_msh(seg_bytes) {
+                    Ok(d) => self.delims = d,
+                    Err(e) => return Some(Err(e)),
+                }
+                self.delims_locked = true;
+            }
+
+            let field_sep = char::from(self.delims.field);
+            let mut parts = seg_str.splitn(256, field_sep);
+            let tag = match parts.next() {
+                Some(t) if !t.is_empty() => t,
+                _ => return Some(Err(DocError::invalid_format("empty segment tag"))),
+            };
+
+            let fields: Vec<&str> = if tag == "MSH" {
+                // Preserve standard MSH numbering: MSH-1 is the field separator.
+                let Ok(sep_field) = core::str::from_utf8(&seg_bytes[3..4]) else {
+                    return Some(Err(DocError::invalid_format(
+                        "MSH-1 is not a valid UTF-8 character",
+                    )));
+                };
+                let mut fields = Vec::with_capacity(1 + seg_str.matches(field_sep).count());
+                fields.push(sep_field);
+                fields.extend(parts);
+                fields
+            } else {
+                parts.collect()
+            };
+
+            return Some(Ok(Segment::new(tag, fields, self.delims)));
+        }
     }
 }
 

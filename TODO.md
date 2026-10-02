@@ -173,3 +173,75 @@
 - [x] CHANGELOG updated per release (Keep a Changelog format; Unreleased section tracks all implementation work)
 - [ ] GitHub release tags aligned to crate versions
 - [ ] GitHub repo created at `github.com/tpt-solutions/tpt-doc` and CI enabled
+
+---
+
+## Review Follow-ups (2026-10-02)
+
+> Source: platform review. Findings come from reading source; not yet reproduced by running code (B1 was re-checked by hand). Fix each bug test-first.
+
+### Step 1 — Correctness hotfixes
+- [ ] **B1** pdf `document.rs` `write_attachment`: `/EF /F` and `/UF` point at the filespec itself, not the embedded stream (capture stream id first); add an object-graph test, not just substring checks
+- [ ] **B2** pdf `escape_pdf_string`: Latin-1 bytes re-encoded as UTF-8 (mojibake, e.g. "café"); emit WinAnsi bytes via `Vec<u8>`
+- [ ] **B8** spreadsheet `xlsx.rs`: honour the cell `r="C5"` column ref so sparse rows don't shift left
+- [ ] EDIFACT / X12 / HL7 parsers: replace recursion on empty segments with a loop (stack overflow on long runs of empty segments)
+
+### Step 2 — Hardening
+- [ ] Shared `Limits` in core (max decompressed bytes, rows, nesting depth); apply to xlsx/docx zip entries, PNG IDAT inflate, XML depth
+- [ ] pdf `image.rs`: bounds-check IHDR/CRC slicing, overflow-check width*height, reject oversized dimensions, verify CRC, handle PLTE/alpha properly
+- [ ] pdf: validate font/image ids in `Page`, read JPEG component count (grayscale/CMYK), sanitise attachment `mime_subtype`, reject NaN/inf in `format_number`
+- [ ] EDIFACT: apply release character `?` and unescape elements/components; error on unterminated trailing segment; error (not silently fold) on `splitn` field overflow
+- [ ] X12: validate ISA delimiters, use ISA16 and repetition separator, error on truncated interchange
+- [ ] HL7: escape `| ^ ~ \ &` and `\r` in `Message::to_bytes`; guard `component(n, 0)` / `repeat(n, 0)`; handle `\r\n`/`\n` endings, Latin-1 (MSH-18), validate MSH delimiters
+- [ ] Reject XML 1.0-illegal control characters in all XML writers (spreadsheet, word, ubl, fhir, xades)
+- [ ] sign: check key matches certificate public key and validity period; accept PKCS#1 keys; add ECDSA; fix `der::integer` sign handling and `der::oid` silent arc drop
+
+### Step 3 — Standards fixes
+- [ ] **B3** sign `cades.rs`: `signingCertificateV2` needs `SEQUENCE OF` level; omit default `hashAlgorithm`; validate with a strict validator (EU DSS / Adobe)
+- [ ] **B4** sign `xades.rs`: add `QualifyingProperties`/`SignedProperties`/`SigningCertificate`; canonicalise (C14N) before digesting; sign `SignedInfo` in namespace context
+- [ ] **B5** sign `pades.rs`: add `/AcroForm`, `/SigFlags`, signature field + widget, use `ETSI.CAdES.detached`, real signing time, robust trailer/`/Root` parsing, preserve `/Info` and `/ID`, search placeholder from `base`, support xref streams
+- [ ] sign: add a public verification API, certificate-chain input (intermediates), RFC 3161 timestamp (PAdES-T/LT)
+- [ ] **B6** ubl parser: scope elements by path (TaxScheme/ID vs TaxCategory/ID, line IDs, party/company IDs); support tax categories K, G, O, L, M; stop silently defaulting bad amounts to 0 (error instead)
+- [ ] ubl: replace `f64` money with decimal/minor-units type; read `currencyID`; reject NaN/inf
+- [ ] **B7** ubl CreditNote: emit `CreditNoteLine` / `CreditedQuantity` / `CreditNoteTypeCode`; parse them back; accept other type codes (384, 389, …)
+- [ ] ubl: emit mandatory BIS 3.0 elements (TaxScheme, unitCode, PartyLegalEntity, endpoint schemeID, BuyerReference, PaymentMeans, ClassifiedTaxCategory, due date, address)
+- [ ] ubl: expand rule coverage beyond 9 rules toward EN 16931 + Peppol BIS 3 (~200); add CII (Factur-X native) and XRechnung
+- [ ] ubl `facturx`: PDF/A-3 + XMP, CII payload (depends on B1)
+- [ ] **B9** layout: render nested blocks (div > h1/p, tables in divs), implicit `<p>` close, wrap table cell text, honour margin/padding/font-weight, handle `>` inside quoted attributes
+- [ ] fhir: preserve unmodelled fields (extensions, meta, text, `_field`); check `resourceType`; fix XML parser (Start/End pairs, depth-scoped elements); decimal `Quantity`; validate date formats; XML for all resources
+- [ ] spreadsheet: resolve sheet via `workbook.xml` + rels (not hard-coded `sheet1.xml`); multi-sheet; formulas, styles, dates; drop rich-text phonetic `<rPh>` text; error on bad shared-string index; CSV formula-injection guard
+- [ ] edi: implement ST/SE, GS/GE, ISA/IEA control-number and count checks promised in docs; report missing-segment index correctly; guard `position - 1`
+
+### Step 4 — Foundation
+- [ ] Implement `DocReader` / `DocWriter` / `Validate` in every crate (currently unused); unify method names (`write`/`finish`/`to_bytes`/`to_xml`/`to_json`)
+- [ ] Extend `ValidationReport`: severity, rule ID, location (path/offset/segment index), serde; adopt in ubl, edi, hl7v2, fhir (replace `UblValidationError`, `SchemaViolation`, `Hl7Violation`, `FhirValidationError`)
+- [ ] `DocError` positional info (byte offset / line / segment) instead of bare strings
+- [ ] Share EDI/HL7 segment tokenizer + TSV schema-table loader; share OOXML packaging between spreadsheet and word
+- [ ] Add serde to all models (HL7 `Message`, EDI segments, spreadsheet `Row`/`Cell`, `DocxDocument`, pdf `Document`)
+- [ ] `Write`-based streaming writers and `Read + Seek` readers; stop buffering whole xlsx sheets; drop per-segment `Vec` allocations to match the "zero-allocation" claim
+- [ ] Runtime-loadable EDI/HL7 schemas (tables are `&'static str` today)
+
+### Step 5 — Adoption & docs
+- [ ] README: list all 10 crates, fix the non-compiling quick-start (make it a doctest or `examples/` file), extend roadmap past Phase 3
+- [ ] Fix doc drift: `docs/src/introduction.md`, `architecture.md`, `spec.txt`, `CHANGELOG.md` still say 7 crates; `docs/src/crates/sign.md` references non-existent `load_private_key` / `SignedDocument` / `CertChain`
+- [ ] `examples/` per crate: HTML→PDF, FHIR Patient→JSON, HL7 ADT parse, X12 835 parse, xlsx round-trip, UBL invoice + Factur-X, PAdES sign
+- [ ] Per-crate `README.md` + `readme`/`documentation` in each `Cargo.toml`; per-crate keywords (max 5, relevant)
+- [ ] `templates/` gallery with sample data + expected output: NZ-style tax invoice (UBL+PDF), HL7 ADT→FHIR, 835 remittance parser, spreadsheet report, signed PDF contract
+- [ ] `tpt-doc` facade crate with per-format feature flags and a unified prelude (only fhir, hl7v2, ubl, word have preludes today); `serde` / `std` feature toggles; make heavy deps (`ring`, `x509-parser`, `zip`) optional
+- [ ] Community files: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `CODEOWNERS`, dependabot
+- [ ] CI: MSRV job (1.85), separate `cargo test --doc`, `cargo semver-checks`, run examples; add `rust-toolchain.toml`, `.devcontainer`, Dockerfile; add `.kilo/` to `.gitignore`
+- [ ] Tag-triggered publish workflow (release-plz / cargo-release)
+- [ ] mdBook: tutorials, recipes, migration + compliance guides (NZISM, HIPC), error-handling guide, longer crate chapters
+- [ ] `cargo-fuzz` targets for hl7v2, edi, fhir JSON/XML, xlsx, docx, png/pdf; criterion benches to back performance claims
+
+### Step 6 — New features
+- [ ] `tpt` CLI crate (`validate | convert | inspect | diff | sign | render`) with format sniffing; revisit `Cargo.lock` gitignore once a binary exists
+- [ ] HL7v2 → FHIR converter (ADT^A01: PID→Patient, PV1→Encounter; ORU^R01: OBX→Observation; Bundle)
+- [ ] JSON → e-invoice pipeline (Invoice → validate → PDF → Factur-X → PAdES); blocked on B1, B3, B5, B6, B7
+- [ ] Data-merge templating (`{{field}}` HTML→PDF; same JSON fills DOCX/XLSX templates)
+- [ ] PHI redaction / de-identification by field path (HL7, FHIR), aligned with HIPC 2020
+- [ ] Structural diff (HL7, EDI, FHIR, DOCX/XLSX) using JSON-pointer-style paths
+- [ ] Audit/provenance hash chain (embedded PDF attachment or FHIR Provenance), signed
+- [ ] WASM playground (`wasm-bindgen`; check `ring` on wasm32 for sign)
+- [ ] MCP server (`validate_document`, `convert`, `extract_text`, `generate_invoice`); needs serde + structured reports first
+- [ ] Format gaps: X12 850/810/856/997/999 + loops, EDIFACT INVOIC/ORDERS/DESADV, EDI writer + 999 ack, HL7 ACK + MLLP + batch, more FHIR resources/R4 + profile validation, DOCX structural read/lists/images/hyperlinks, PDF parser/text extraction/PDF/A/merge-split

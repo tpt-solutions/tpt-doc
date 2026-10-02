@@ -43,7 +43,7 @@ pub use bundle::{Bundle, Resource};
 pub use encounter::{Encounter, EncounterBuilder, EncounterStatus};
 pub use observation::{Observation, ObservationBuilder, ObservationStatus};
 pub use organization::{Organization, OrganizationBuilder};
-pub use patient::{Patient, PatientBuilder};
+pub use patient::{Gender, Patient, PatientBuilder};
 pub use types::{CodeableConcept, Coding, HumanName, Identifier, Period, Quantity, Reference};
 pub use validate::{FhirValidationError, validate_encounter, validate_observation};
 
@@ -51,7 +51,7 @@ pub use validate::{FhirValidationError, validate_encounter, validate_observation
 pub mod prelude {
     pub use super::{
         Bundle, CodeableConcept, Coding, Encounter, EncounterBuilder, EncounterStatus,
-        FhirValidationError, HumanName, Identifier, Observation, ObservationBuilder,
+        FhirValidationError, Gender, HumanName, Identifier, Observation, ObservationBuilder,
         ObservationStatus, Organization, OrganizationBuilder, Patient, PatientBuilder, Period,
         Quantity, Reference, Resource, validate_encounter, validate_observation,
     };

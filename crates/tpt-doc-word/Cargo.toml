@@ -9,6 +9,8 @@ repository.workspace = true
 homepage.workspace = true
 keywords = ["docx", "word", "ooxml", "document", "office"]
 categories = ["encoding", "parser-implementations", "text-processing"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-word"
 rust-version.workspace = true
 
 [dependencies]

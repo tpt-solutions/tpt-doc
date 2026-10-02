@@ -7,8 +7,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["pades", "xades", "cades", "signing", "hipc"]
-categories = ["cryptography", "encoding"]
+keywords = ["pades", "xades", "cades", "cms", "digital-signature"]
+categories = ["cryptography", "encoding", "security"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-sign"
 rust-version.workspace = true
 
 [dependencies]
@@ -20,3 +22,5 @@ base64 = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+# Used only to keep the workspace README quick-start compiling as a test.
+tpt-doc-fhir = { workspace = true }

@@ -7,8 +7,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["ubl", "peppol", "invoice", "e-invoicing", "xml"]
-categories = ["encoding", "parser-implementations", "web-programming"]
+keywords = ["ubl", "peppol", "invoice", "e-invoicing", "factur-x"]
+categories = ["encoding", "parser-implementations", "finance", "date-and-time"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-ubl"
 rust-version.workspace = true
 
 [dependencies]

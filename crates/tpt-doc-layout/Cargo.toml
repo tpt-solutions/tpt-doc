@@ -8,7 +8,9 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 keywords = ["html", "css", "pdf", "layout", "report"]
-categories = ["rendering", "encoding", "web-programming"]
+categories = ["rendering", "text-processing", "template-engine", "web-programming"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-layout"
 rust-version.workspace = true
 
 [dependencies]

@@ -127,6 +127,8 @@ struct CellState {
     value: String,
     /// Text accumulated from `<is><t>`.
     inline: String,
+    /// 0-based column from the cell's `r` attribute, when present.
+    column: Option<usize>,
 }
 
 impl CellState {
@@ -207,8 +209,22 @@ impl RowsIter<'_> {
             })
     }
 
+    /// Place the finished cell at its declared column, padding any skipped
+    /// columns with blanks. Cells without an `r` attribute are appended
+    /// sequentially, which is what sparse writers expect.
     fn finish_cell(&mut self) {
-        let cell = std::mem::take(&mut self.cell).finish(self.shared);
+        let state = std::mem::take(&mut self.cell);
+        let column = state.column.unwrap_or(self.row_cells.len());
+        let cell = state.finish(self.shared);
+        if self.row_cells.len() < column {
+            self.row_cells
+                .resize_with(column, || Cell::Blank);
+        }
+        if column < self.row_cells.len() {
+            // An out-of-order or duplicate reference: keep the first value
+            // rather than shifting the row.
+            return;
+        }
         self.row_cells.push(cell);
     }
 }
@@ -245,6 +261,9 @@ impl Iterator for RowsIter<'_> {
                                 Some("str") => CellKind::FormulaString,
                                 _ => CellKind::Number,
                             },
+                            column: Self::attr(&start, "r")
+                                .as_deref()
+                                .and_then(column_index),
                             ..CellState::default()
                         };
                     }
@@ -462,6 +481,28 @@ const WORKBOOK_RELS_XML: &str = concat!(
     r#"</Relationships>"#
 );
 
+/// Parse the column index (0-based) from a cell reference such as `C5`.
+///
+/// Returns `None` when the reference has no leading letters, so cells written
+/// without an `r` attribute fall back to sequential placement.
+#[must_use]
+pub(crate) fn column_index(reference: &str) -> Option<usize> {
+    let letters: String = reference
+        .chars()
+        .take_while(char::is_ascii_alphabetic)
+        .collect();
+    if letters.is_empty() {
+        return None;
+    }
+    let mut index = 0usize;
+    for ch in letters.chars() {
+        // Bijective base-26 with an implicit leading A: A=0, Z=25, AA=26.
+        let digit = usize::from(ch.to_ascii_uppercase() as u8 - b'A') + 1;
+        index = index.checked_mul(26)?.checked_add(digit)?;
+    }
+    Some(index - 1)
+}
+
 /// Column index (0-based) to spreadsheet letters: 0 → `A`, 26 → `AA`.
 #[must_use]
 pub fn column_name(mut column: usize) -> String {
@@ -529,8 +570,94 @@ fn build_sheet_xml(rows: &[Row]) -> String {
 mod tests {
     use super::*;
 
+        /// A sparse worksheet: row 1 skips column C, and row 3 has one cell in
+    /// column C. Cells carry explicit `r` references naming their column.
+    const SPARSE_SHEET: &str = concat!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+        r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+        r#"<sheetData>"#,
+        r#"<row r="1" spans="1:4">"#,
+        r#"<c r="A1" t="inlineStr"><is><t>alpha</t></is></c>"#,
+        r#"<c r="B1" t="inlineStr"><is><t>beta</t></is></c>"#,
+        r#"<c r="D1" t="inlineStr"><is><t>delta</t></is></c>"#,
+        r#"</row>"#,
+        r#"<row>"#,
+        r#"<c r="C3" t="inlineStr"><is><t>gamma</t></is></c>"#,
+        r#"</row>"#,
+        r#"</sheetData></worksheet>"#,
+    );
+
+    fn parse_sheet(xml: &str) -> Vec<Row> {
+        let mut reader = XlsxReader {
+            sheet: xml.as_bytes().to_vec(),
+            shared_strings: Vec::new(),
+        };
+        reader.rows().collect::<Result<Vec<_>, _>>().expect("parse sheet")
+    }
+
     #[test]
-    fn column_names_progress_like_excel() {
+    fn sparse_row_fills_the_skipped_column_with_blank_cells() {
+        let rows = parse_sheet(SPARSE_SHEET);
+
+        assert_eq!(rows[0].cells.len(), 4, "A..D with the skipped C column");
+        assert_eq!(rows[0].cells[0], Cell::String("alpha".to_owned()));
+        assert_eq!(rows[0].cells[1], Cell::String("beta".to_owned()));
+        assert_eq!(rows[0].cells[2], Cell::Blank, "skipped column C");
+        assert_eq!(rows[0].cells[3], Cell::String("delta".to_owned()));
+    }
+
+    #[test]
+    fn cell_reference_column_places_a_lone_cell_in_column_c() {
+        let rows = parse_sheet(SPARSE_SHEET);
+
+        // Without honouring `r="C3"`, gamma would be read as column A.
+        assert_eq!(rows[1].cells.len(), 3);
+        assert_eq!(rows[1].cells[0], Cell::Blank);
+        assert_eq!(rows[1].cells[1], Cell::Blank);
+        assert_eq!(rows[1].cells[2], Cell::String("gamma".to_owned()));
+    }
+
+    #[test]
+    fn cells_without_references_keep_their_sequential_position() {
+        let xml = concat!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+            r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+            r#"<sheetData><row r="1">"#,
+            r#"<c t="inlineStr"><is><t>one</t></is></c>"#,
+            r#"<c t="inlineStr"><is><t>two</t></is></c>"#,
+            r#"</row></sheetData></worksheet>"#,
+        );
+        let rows = parse_sheet(xml);
+        assert_eq!(rows[0].cells.len(), 2);
+        assert_eq!(rows[0].cells[0], Cell::String("one".to_owned()));
+        assert_eq!(rows[0].cells[1], Cell::String("two".to_owned()));
+    }
+
+    #[test]
+    fn column_index_parses_letter_references() {
+        assert_eq!(column_index("A1"), Some(0));
+        assert_eq!(column_index("B7"), Some(1));
+        assert_eq!(column_index("C3"), Some(2));
+        assert_eq!(column_index("Z9"), Some(25));
+        assert_eq!(column_index("AA1"), Some(26));
+        assert_eq!(column_index("AB2"), Some(27));
+        assert_eq!(column_index("1"), None, "a reference needs letters");
+        assert_eq!(column_index(""), None);
+    }
+
+    #[test]
+    fn writer_round_trips_its_own_blank_cells() {
+        let rows = vec![Row {
+            index: 1,
+            cells: vec![Cell::String("a".to_owned()), Cell::Blank, Cell::String("c".to_owned())],
+        }];
+        let xml = build_sheet_xml(&rows);
+        let parsed = parse_sheet(&xml);
+        assert_eq!(parsed[0].cells, rows[0].cells);
+    }
+
+    #[test]
+fn column_names_progress_like_excel() {
         assert_eq!(column_name(0), "A");
         assert_eq!(column_name(25), "Z");
         assert_eq!(column_name(26), "AA");

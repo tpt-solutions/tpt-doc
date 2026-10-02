@@ -15,6 +15,23 @@ fn parse(bytes: &[u8]) -> Vec<tpt_doc_hl7v2::Segment<'_>> {
         .expect("parse fixture")
 }
 
+/// A long run of empty segments must not recurse per segment — that overflows
+/// the stack on untrusted input.
+#[test]
+fn long_run_of_empty_segments_does_not_overflow() {
+    // A valid MSH header sets the delimiters, then every segment is empty.
+    let mut message =
+        b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|MSG1|P|2.5.1\r".to_vec();
+    message.extend(std::iter::repeat_n(b'\r', 200_000));
+
+    let tags: Vec<String> = Hl7Parser::new(&message)
+        .map(|segment| segment.map(|s| s.tag().to_string()))
+        .collect::<Result<_, _>>()
+        .expect("segments");
+    assert_eq!(tags, vec!["MSH"], "only the MSH should survive");
+}
+
+
 #[test]
 fn parses_adt_a01_fixture() {
     let bytes = fixture("adt_a01.hl7");

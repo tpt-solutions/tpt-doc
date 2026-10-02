@@ -7,8 +7,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["hl7", "healthcare", "msh", "oru", "adt"]
+keywords = ["hl7", "hl7v2", "healthcare", "msh", "interop"]
 categories = ["encoding", "parser-implementations", "science"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-hl7v2"
 rust-version.workspace = true
 
 [dependencies]

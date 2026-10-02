@@ -7,8 +7,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["edifact", "x12", "edi", "healthcare", "enterprise"]
+keywords = ["edifact", "x12", "edi", "healthcare", "interchange"]
 categories = ["encoding", "parser-implementations"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-edi"
 rust-version.workspace = true
 
 [dependencies]

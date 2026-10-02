@@ -7,8 +7,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["fhir", "hl7", "healthcare", "hipc", "nzism"]
-categories = ["encoding", "parser-implementations", "science"]
+keywords = ["fhir", "hl7", "healthcare", "hipc", "interop"]
+categories = ["encoding", "parser-implementations", "science", "date-and-time"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-fhir"
 rust-version.workspace = true
 
 [dependencies]

@@ -200,3 +200,29 @@ mod proptests {
         }
     }
 }
+/// A long run of empty segments must not recurse per segment — that overflows
+/// the stack on untrusted input.
+#[test]
+fn edifact_long_run_of_empty_segments_does_not_overflow() {
+    // Every segment is immediately terminated, so each is empty and skipped.
+    let msg = vec![b'\''; 200_000];
+    let segments: Result<Vec<_>, _> = EdifactParser::new(&msg).collect();
+    assert!(segments.is_ok(), "parser must terminate without overflowing");
+    assert!(segments.unwrap().is_empty());
+}
+
+#[test]
+fn x12_long_run_of_empty_segments_does_not_overflow() {
+    // A valid 106-byte ISA sets the delimiters, then every segment is empty.
+    let isa = "ISA*00*          *00*          *ZZ*SENDERID       *ZZ*RECEIVERID     *260101*0900*^*00501*000000001*0*P*:~";
+    let mut interchange = isa.as_bytes().to_vec();
+    interchange.extend(std::iter::repeat_n(b'~', 200_000));
+
+    let tags: Vec<String> = X12Parser::new(&interchange)
+        .expect("valid ISA")
+        .map(|segment| segment.map(|s| s.tag().to_string()))
+        .collect::<Result<_, _>>()
+        .expect("segments");
+    assert_eq!(tags, vec!["ISA"], "only the ISA should survive");
+}
+

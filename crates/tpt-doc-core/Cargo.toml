@@ -7,8 +7,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-keywords = ["document", "no-std", "zero-copy", "enterprise", "fhir"]
+keywords = ["document", "no-std", "zero-copy", "error-handling", "parsers"]
 categories = ["no-std", "data-structures", "encoding"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-core"
 rust-version.workspace = true
 
 [features]

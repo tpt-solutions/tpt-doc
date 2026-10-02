@@ -76,44 +76,48 @@ impl<'a> EdifactParser<'a> {
 
     /// Parse the next segment from the input.
     fn next_segment(&mut self) -> Option<Result<Segment<'a>, DocError>> {
-        if self.pos >= self.input.len() {
-            return None;
+        // Loop rather than recurse: a message containing a long run of empty
+        // segments would otherwise overflow the stack.
+        loop {
+            if self.pos >= self.input.len() {
+                return None;
+            }
+
+            // Find the segment terminator
+            let start = self.pos;
+            let end = memchr::memchr(self.seg_term, &self.input[start..])?;
+            let seg_bytes = &self.input[start..start + end];
+            self.pos = start + end + 1;
+
+            // Skip leading whitespace / newlines between segments
+            while self.pos < self.input.len()
+                && (self.input[self.pos] == b'\n' || self.input[self.pos] == b'\r')
+            {
+                self.pos += 1;
+            }
+
+            // Convert to str (EDIFACT is typically ASCII/ISO 8859)
+            let Ok(seg_str) = std::str::from_utf8(seg_bytes) else {
+                return Some(Err(DocError::invalid_format(
+                    "segment contains non-UTF-8 bytes",
+                )));
+            };
+
+            if seg_str.is_empty() {
+                continue;
+            }
+
+            // Split on element separator
+            let elem_sep = self.elem_sep as char;
+            let mut parts = seg_str.splitn(64, elem_sep);
+            let tag = match parts.next() {
+                Some(t) if !t.is_empty() => t,
+                _ => return Some(Err(DocError::invalid_format("empty segment tag"))),
+            };
+
+            let elements: Vec<&str> = parts.collect();
+            return Some(Ok(Segment { tag, elements }));
         }
-
-        // Find the segment terminator
-        let start = self.pos;
-        let end = memchr::memchr(self.seg_term, &self.input[start..])?;
-        let seg_bytes = &self.input[start..start + end];
-        self.pos = start + end + 1;
-
-        // Skip leading whitespace / newlines between segments
-        while self.pos < self.input.len()
-            && (self.input[self.pos] == b'\n' || self.input[self.pos] == b'\r')
-        {
-            self.pos += 1;
-        }
-
-        // Convert to str (EDIFACT is typically ASCII/ISO 8859)
-        let Ok(seg_str) = std::str::from_utf8(seg_bytes) else {
-            return Some(Err(DocError::invalid_format(
-                "segment contains non-UTF-8 bytes",
-            )));
-        };
-
-        if seg_str.is_empty() {
-            return self.next_segment();
-        }
-
-        // Split on element separator
-        let elem_sep = self.elem_sep as char;
-        let mut parts = seg_str.splitn(64, elem_sep);
-        let tag = match parts.next() {
-            Some(t) if !t.is_empty() => t,
-            _ => return Some(Err(DocError::invalid_format("empty segment tag"))),
-        };
-
-        let elements: Vec<&str> = parts.collect();
-        Some(Ok(Segment { tag, elements }))
     }
 }
 
