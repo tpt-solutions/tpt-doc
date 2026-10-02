@@ -1,10 +1,10 @@
-
 //! Shared XML text helpers: legality checking and entity escaping.
 //!
 //! Every XML-producing crate in this workspace (spreadsheet, word, ubl, fhir,
 //! sign) needs the same two guarantees, so they live here rather than being
 //! reimplemented per crate.
 
+use alloc::format;
 use alloc::string::String;
 
 use crate::error::DocError;
@@ -23,9 +23,8 @@ pub fn is_xml_char(ch: char) -> bool {
         || code == 0x0D
         || (0x20..=0xD7FF).contains(&code)
         || (0xE000..=0xFFFD).contains(&code)
-        || (0x10000..=0x10FFFF).contains(&code)
+        || (0x0001_0000..=0x0010_FFFF).contains(&code)
 }
-
 
 /// Escape text for inclusion in XML, rejecting characters XML 1.0 forbids.
 ///
@@ -120,10 +119,7 @@ mod tests {
 
     #[test]
     fn spacing_is_preserved() {
-        assert_eq!(
-            escape_xml_text(" <b> ").expect("legal"),
-            " &lt;b&gt; "
-        );
+        assert_eq!(escape_xml_text(" <b> ").expect("legal"), " &lt;b&gt; ");
     }
 
     #[test]

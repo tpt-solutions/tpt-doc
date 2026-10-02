@@ -28,7 +28,10 @@ fn illegal_control_character_in_patient_json_is_unaffected() {
 
     let json = patient.to_json().expect("JSON permits escaped controls");
     let text = String::from_utf8_lossy(&json).into_owned();
-    assert!(text.contains("\\u0001"), "JSON should escape the control: {text}");
+    assert!(
+        text.contains("\\u0001"),
+        "JSON should escape the control: {text}"
+    );
 }
 
 #[test]

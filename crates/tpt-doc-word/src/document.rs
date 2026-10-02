@@ -1,9 +1,9 @@
 use std::fmt::Write as _;
 use std::io::{Read as _, Write as _};
 
-use tpt_doc_core::escape_xml_text;
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
+use tpt_doc_core::escape_xml_text;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
@@ -358,7 +358,7 @@ fn header_or_footer_xml(root: &str, text: &str) -> Result<String, DocError> {
             r#"</{root}>"#
         ),
         root = root,
-            text = escaped
+        text = escaped
     ))
 }
 
@@ -591,7 +591,10 @@ mod tests {
     fn tab_newline_and_return_are_accepted_in_runs() {
         let mut doc = DocxDocument::new();
         doc.push_paragraph(Paragraph::new("a\tb\nc\rd"));
-        assert!(DocxWriter::write(&doc).is_ok(), "these controls are legal XML");
+        assert!(
+            DocxWriter::write(&doc).is_ok(),
+            "these controls are legal XML"
+        );
     }
 
     #[test]

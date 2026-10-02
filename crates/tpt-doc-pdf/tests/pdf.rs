@@ -229,7 +229,11 @@ fn object_bodies(bytes: &[u8]) -> std::collections::BTreeMap<u32, String> {
     let header_end = find(&bytes[pos..], b"\n") + pos;
     let header = std::str::from_utf8(&bytes[pos..header_end]).expect("xref subsection header");
     let mut header_fields = header.split_whitespace();
-    let next_id: u32 = header_fields.next().expect("first object").parse().expect("id");
+    let next_id: u32 = header_fields
+        .next()
+        .expect("first object")
+        .parse()
+        .expect("id");
     let count: u32 = header_fields.next().expect("count").parse().expect("count");
     pos = header_end + 1;
 
@@ -238,7 +242,11 @@ fn object_bodies(bytes: &[u8]) -> std::collections::BTreeMap<u32, String> {
         let entry = std::str::from_utf8(&bytes[pos..line_end]).expect("xref entry");
         // Each fixed-width entry is `oooooooooo ggggg n`.
         let mut fields = entry.split_whitespace();
-        let offset: usize = fields.next().expect("offset").parse().expect("numeric offset");
+        let offset: usize = fields
+            .next()
+            .expect("offset")
+            .parse()
+            .expect("numeric offset");
         let _generation = fields.next().expect("generation");
         let in_use = fields.next().expect("in-use flag") == "n";
         pos = line_end + 1;
@@ -278,7 +286,10 @@ fn indirect_refs(body: &str) -> Vec<u32> {
             j += 1;
         }
         if bytes[j..].starts_with(b"0 R") {
-            if let Ok(id) = std::str::from_utf8(&bytes[start..i]).unwrap().parse::<u32>() {
+            if let Ok(id) = std::str::from_utf8(&bytes[start..i])
+                .unwrap()
+                .parse::<u32>()
+            {
                 refs.push(id);
             }
             i = j + 3;
@@ -348,7 +359,11 @@ fn filespec_ef_points_at_the_embedded_file_stream_not_itself() {
 fn multiple_attachments_each_reference_their_own_stream() {
     let mut doc = Document::new();
     doc.attach_file("first.xml", "text/xml", b"<First/>".to_vec());
-    doc.attach_file("second.json", "application/json", b"{\"second\":1}".to_vec());
+    doc.attach_file(
+        "second.json",
+        "application/json",
+        b"{\"second\":1}".to_vec(),
+    );
     let bytes = doc.write().expect("write");
 
     let objects = object_bodies(&bytes);
@@ -365,7 +380,10 @@ fn multiple_attachments_each_reference_their_own_stream() {
         refs.dedup();
         assert_eq!(refs.len(), 1, "/F and /UF must agree: {ef:?}");
         let target = refs[0];
-        assert!(streams.contains(&target), "/EF target {target} is not a stream");
+        assert!(
+            streams.contains(&target),
+            "/EF target {target} is not a stream"
+        );
         assert_ne!(
             target, *filespec_id,
             "filespec {filespec_id} must not reference itself"

@@ -116,6 +116,45 @@ assert!(violations.is_empty(), "unexpected violations: {violations:?}");
 # Ok::<(), tpt_doc_core::DocError>(())
 ```
 
+### Escaping
+
+Field values are escaped on output. The characters that would otherwise break
+the envelope are escaped using the HL7 escape mnemonics — `\F\` field, `\E\`
+escape, `\X0D\` carriage return, `\X0A\` newline — while the component (`^`),
+repetition (`~`), and subcomponent (`&`) separators are left alone, because a
+field value is expected to carry them.
+
+```rust
+use tpt_doc_hl7v2::prelude::*;
+
+let mut message = Message::msh(
+    "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+);
+message.push_segment("NTE", &["1", "O'Fahey | given: A"]);
+let text = String::from_utf8(message.to_bytes()).expect("UTF-8");
+
+// The pipe in the free-text note is escaped to `\F\`, so it cannot start a
+// new field: the value stays one field.
+assert!(text.contains("NTE|1|O'Fahey \\F\\ given: A"), "{text}");
+```
+
+### Line endings
+
+HL7 specifies CR (`\r`) as the segment terminator, but CRLF and bare LF are
+both common in practice. All three parse identically, and a CRLF pair does not
+produce a spurious empty segment.
+
+```rust
+use tpt_doc_hl7v2::prelude::*;
+
+let tags: Vec<String> = Hl7Parser::new(b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\r\nPID|1||12345\r\n")
+    .map(|segment| segment.map(|s| s.tag().to_string()))
+    .collect::<Result<_, _>>()?;
+
+assert_eq!(tags, vec!["MSH", "PID"]);
+# Ok::<(), tpt_doc_core::DocError>(())
+```
+
 ## Modules
 
 | Module | Contents |

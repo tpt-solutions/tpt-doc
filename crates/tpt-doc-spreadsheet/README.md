@@ -80,6 +80,26 @@ assert_eq!(records, vec![vec!["12345".to_string(), "active".to_string()]]);
 | `xlsx` | `XlsxReader`, `XlsxWriter`, `Row`, `Cell` — streaming OOXML. |
 | `csv` | `CsvReader`, `CsvWriter` — RFC 4180 style delimited text. |
 
+## Character validation
+
+XML 1.0 forbids C0 control characters other than tab, newline and carriage
+return. A string cell containing one cannot be represented at all, so writing
+it raw would produce a workbook that Excel refuses to open — the writer reports
+an error naming the offending code point instead.
+
+```rust
+use tpt_doc_spreadsheet::{Cell, Row, XlsxWriter};
+
+let mut writer = XlsxWriter::new();
+writer.push_row(Row {
+    index: 1,
+    cells: vec![Cell::String("bad\u{1}value".into())],
+});
+let err = writer.finish().expect_err("U+0001 is not legal in XML");
+assert!(err.to_string().contains("U+0001"));
+# Ok::<(), tpt_doc_spreadsheet::Row>(())
+```
+
 ## Memory model
 
 `XlsxReader::rows()` yields `Result<Row, DocError>` items one at a time. The

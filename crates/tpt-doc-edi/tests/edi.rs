@@ -21,6 +21,142 @@ fn x12_fixture() -> Vec<u8> {
     .expect("fixture file")
 }
 
+/// A release character (`?` by default) escapes a literal separator, so
+/// `A?+B` is one element containing `+`, not two elements.
+#[test]
+fn release_character_escapes_separators() {
+    let message = b"UNB+UNOA:1+A?+B+C?D'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let elements = segments[0].elements_released();
+    assert_eq!(elements[1], "A+B");
+    assert_eq!(elements[2], "CD");
+}
+
+#[test]
+fn release_character_escapes_component_separator() {
+    let message = b"UNB+UNOA:1+A?:B'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let elements = segments[0].elements_released();
+    assert_eq!(elements[1], "A:B");
+}
+
+/// A release before the *segment terminator* cannot be honoured: the parser
+/// has already cut the segment at the `'`, so `C?'` is reported as `C`. This
+/// is inherent to the wire format — the terminator ends the segment.
+#[test]
+fn release_before_segment_terminator_cannot_be_recovered() {
+    let message = b"UNB+UNOA:1+C?'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(segments[0].elements_released()[1], "C");
+}
+
+#[test]
+fn doubled_release_character_yields_one_literal_release() {
+    let message = b"UNB+UNOA:1+A??B'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(segments[0].elements_released()[1], "A?B");
+}
+
+/// Per ISO 9735, `?X` is not a defined sequence, so the release character is
+/// dropped and X is kept.
+#[test]
+fn unrecognised_release_sequence_drops_only_the_release() {
+    let message = b"UNB+UNOA:1+A?XB'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(segments[0].elements_released()[1], "AXB");
+}
+
+/// Elements without a release character must not allocate.
+#[test]
+fn elements_released_borrows_when_no_release_present() {
+    let message = b"UNB+UNOA:1+SENDER+RECEIVER+200101:0900+1'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    for element in segments[0].elements_released() {
+        assert!(
+            matches!(element, std::borrow::Cow::Borrowed(_)),
+            "expected a borrowed Cow for {element:?}"
+        );
+    }
+}
+
+/// `elements()` keeps the raw bytes, so it must not resolve releases.
+#[test]
+fn raw_elements_retain_release_sequences() {
+    let message = b"UNB+UNOA:1+A?+B'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(segments[0].elements()[1], "A?+B");
+}
+
+/// A truncated final segment must be reported, not silently dropped.
+#[test]
+fn unterminated_trailing_segment_is_an_error() {
+    let message = b"UNB+UNOA:1+A'UNT+2+1";
+    let result: Result<Vec<_>, _> = EdifactParser::new(message).collect();
+    let err = result.expect_err("missing terminator must be reported");
+    assert!(
+        err.to_string().contains("unterminated"),
+        "error should say so: {err}"
+    );
+}
+
+#[test]
+fn well_terminated_message_has_no_trailing_error() {
+    let message = b"UNB+UNOA:1+A'UNT+2+1'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("terminated message");
+    assert_eq!(segments.len(), 2);
+}
+
+/// Too many elements must be reported, not silently folded into the last one.
+#[test]
+fn excessive_element_count_is_an_error() {
+    let mut message = b"UNB".to_vec();
+    for _ in 0..200 {
+        message.push(b'+');
+        message.extend_from_slice(b"X");
+    }
+    message.push(b'\'');
+
+    let result: Result<Vec<_>, _> = EdifactParser::new(&message).collect();
+    let err = result.expect_err("over-long element list must be reported");
+    assert!(
+        err.to_string().contains("exceeding"),
+        "error should say so: {err}"
+    );
+}
+
+#[test]
+fn exactly_max_elements_is_accepted() {
+    // 128 elements is the documented cap and must not trip the limit.
+    let mut message = b"UNB".to_vec();
+    for _ in 0..128 {
+        message.push(b'+');
+        message.extend_from_slice(b"X");
+    }
+    message.push(b'\'');
+
+    let segments: Vec<_> = EdifactParser::new(&message)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("128 elements is within the cap");
+    assert_eq!(segments[0].elements().len(), 128);
+}
+
+
 #[test]
 fn parses_edifact_fixture_and_asserts_values() {
     let bytes = edifact_fixture();
@@ -207,7 +343,10 @@ fn edifact_long_run_of_empty_segments_does_not_overflow() {
     // Every segment is immediately terminated, so each is empty and skipped.
     let msg = vec![b'\''; 200_000];
     let segments: Result<Vec<_>, _> = EdifactParser::new(&msg).collect();
-    assert!(segments.is_ok(), "parser must terminate without overflowing");
+    assert!(
+        segments.is_ok(),
+        "parser must terminate without overflowing"
+    );
     assert!(segments.unwrap().is_empty());
 }
 
@@ -225,4 +364,3 @@ fn x12_long_run_of_empty_segments_does_not_overflow() {
         .expect("segments");
     assert_eq!(tags, vec!["ISA"], "only the ISA should survive");
 }
-

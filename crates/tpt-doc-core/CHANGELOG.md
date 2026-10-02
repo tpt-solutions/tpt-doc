@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Validate` trait plus `ValidationReport` and `ValidationIssue` for
   structured, field-path-anchored validation reporting.
 - `no_std` support through the `std` feature flag (enabled by default).
+- `xml` module with `escape_xml_text`, `validate_xml_chars`, and `is_xml_char`.
+  XML 1.0 forbids C0 controls other than tab, newline and carriage return; these
+  helpers let every XML-producing crate in the workspace reject them instead of
+  emitting documents conforming parsers refuse.
 - `#![forbid(unsafe_code)]` and `#![warn(missing_docs, clippy::pedantic)]`.
 
 [0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-core-v0.1.0

@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `StyleSet` with `mark_used()` for emitting only the styles a document needs.
 - `table` module: `Table`, `Row`, `Cell`, and `BorderStyle`.
 - `prelude` module for single-line imports.
+- Text is validated against the XML 1.0 `Char` production. A C0 control in a run,
+  style id, table cell, or header/footer is reported with its code point instead
+  of producing a `.docx` Word cannot open.
 - Deterministic XML output, verified with `insta` snapshots and `proptest`
   round-trip tests.
 

@@ -80,6 +80,27 @@ let report = validate_observation(&observation);
 assert!(report.is_valid(), "unexpected issues: {:?}", report.issues());
 ```
 
+## XML versus JSON
+
+XML 1.0 forbids C0 control characters other than tab, newline and carriage
+return, so `to_xml` on a resource reports an error naming the offending code
+point rather than emitting malformed FHIR XML. `to_json` is unaffected — JSON
+can represent those characters as `\u0001` escapes.
+
+```rust
+use tpt_doc_fhir::prelude::*;
+
+let patient = Patient::builder()
+    .id("nz-12345")
+    .name(HumanName::new("Bad\u{1}Name", "John"))
+    .build();
+
+assert!(patient.to_xml().is_err(), "U+0001 cannot appear in XML");
+let json = patient.to_json()?;
+assert!(String::from_utf8_lossy(&json).contains("\\u0001"));
+# Ok::<(), FhirValidationError>(())
+```
+
 ## Modules
 
 | Module | Contents |

@@ -21,11 +21,7 @@ pub(crate) const XML_VERSION: XmlVersion = XmlVersion::Implicit1_0;
 /// Returns [`DocError::InvalidFormat`] if `value` contains a character XML
 /// 1.0 forbids; FHIR XML must be well-formed, and a raw control character
 /// makes it not.
-pub(crate) fn value_element(
-    xml: &mut String,
-    name: &str,
-    value: &str,
-) -> Result<(), DocError> {
+pub(crate) fn value_element(xml: &mut String, name: &str, value: &str) -> Result<(), DocError> {
     let escaped = tpt_doc_core::escape_xml_text(value)?;
     let _ = write!(xml, r#"<{name} value="{escaped}"/>"#);
     Ok(())

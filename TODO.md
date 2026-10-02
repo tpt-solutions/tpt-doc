@@ -188,12 +188,12 @@
 
 ### Step 2 — Hardening
 - [ ] Shared `Limits` in core (max decompressed bytes, rows, nesting depth); apply to xlsx/docx zip entries, PNG IDAT inflate, XML depth
-- [ ] pdf `image.rs`: bounds-check IHDR/CRC slicing, overflow-check width*height, reject oversized dimensions, verify CRC, handle PLTE/alpha properly
+- [x] MOSTLY DONE (pdf): IHDR out-of-bounds panic fixed; compression/filter/colour type validated; MAX_PIXELS bound before allocating; chunk length via try_from; per-chunk CRC-32 verified. NOT DONE: PLTE/tRNS alpha correctness.
 - [ ] pdf: validate font/image ids in `Page`, read JPEG component count (grayscale/CMYK), sanitise attachment `mime_subtype`, reject NaN/inf in `format_number`
-- [ ] EDIFACT: apply release character `?` and unescape elements/components; error on unterminated trailing segment; error (not silently fold) on `splitn` field overflow -- **BLOCKED**: `Segment::elements()` returns a slice of `&str` borrowed from the input, so unescaping needs owned storage. Requires a breaking API change to `Segment` (or `Cow<'a, str>`). Deferred rather than half-done.
-- [x] PARTIAL (edi): `X12Parser::new` validates ISA01/ISA16/terminator (printable, distinct) via 6 tests in `tests/x12_isa.rs`. NOT DONE: repetition separator support, truncated-interchange error.
-- [x] PARTIAL (hl7v2): `Message::to_bytes` now escapes the field separator, escape character, CR and LF via `escape_value` (4 tests). `component(n,0)` / `repeat(n,0)` guarded. NOT DONE: CRLF/LF endings, Latin-1 (MSH-18), MSH delimiter validation.
-- [ ] Reject XML 1.0-illegal control characters in all XML writers (spreadsheet, word, ubl, fhir, xades)
+- [x] FIXED: `Segment::elements_released()` resolves release sequences without a breaking change (`elements()` still returns raw borrowed slices). Splitting now respects released separators, so `A?+B` is one element. Also reports truncated trailing segments and rejects >128 elements.
+- [x] DONE (edi): ISA01/ISA11/ISA16/terminator validated (printable, distinct); `repetition_separator()` exposes ISA11; truncated trailing segment reported. 11 tests in `tests/x12_isa.rs`.
+- [x] MOSTLY DONE (hl7v2): encoder escapes field/escape chars and CR/LF; `component(n,0)`/`repeat(n,0)` guarded; parser accepts CR, CRLF and bare LF terminators. NOT DONE: MSH-18 Latin-1, MSH delimiter validation.
+- [x] FIXED: shared `escape_xml_text` / `validate_xml_chars` / `is_xml_char` added to tpt-doc-core `xml` module and wired into all XML writers (spreadsheet, word, ubl, fhir). Verified a raw 0x01 was previously written into sheet1.xml; now rejected with the offending code point. NOT DONE: xades needs nothing (base64 only).
 - [ ] sign: check key matches certificate public key and validity period; accept PKCS#1 keys; add ECDSA; fix `der::integer` sign handling and `der::oid` silent arc drop
 
 ### Step 3 — Standards fixes

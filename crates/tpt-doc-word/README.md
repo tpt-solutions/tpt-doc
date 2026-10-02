@@ -102,6 +102,23 @@ assert_eq!(doc.header(), Some("TPT Solutions"));
 assert_eq!(doc.footer(), Some("Confidential"));
 ```
 
+## Character validation
+
+XML 1.0 forbids C0 control characters other than tab, newline and carriage
+return. Text containing one cannot be represented, so `DocxWriter::write`
+reports an error naming the code point rather than emitting a `.docx` Word
+cannot open. This covers paragraph runs, style ids, table cells, and the
+header/footer.
+
+```rust
+use tpt_doc_word::prelude::*;
+
+let mut doc = DocxDocument::new();
+doc.push_paragraph(Paragraph::new("bad\u{1}value"));
+let err = DocxWriter::write(&doc).expect_err("U+0001 is not legal in XML");
+assert!(err.to_string().contains("U+0001"));
+```
+
 ## Modules
 
 | Module | Contents |

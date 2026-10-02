@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Times-Italic.
 - `image` module: `Image::from_jpeg` (passthrough) and `Image::from_png`
   (transcode to `/FlateDecode`), plus `ImageFilter`.
+  `from_png` now validates the IHDR chunk against the full 13-byte layout —
+  previously a 10-, 11-, or 12-byte IHDR read `data[12]` out of bounds — checks
+  the compression and filter methods, rejects unknown colour types, bounds the
+  declared pixel count before allocating, and converts the chunk length with
+  `try_from` so a hostile `0xFFFFFFFF` length cannot overflow the slicing.
+  Each chunk's CRC-32 is now verified, so a corrupt or non-PNG file is
+  rejected rather than decoded into a silently wrong image.
 - `xref` module exposing `XrefTable` / `XrefEntry` for precise byte-offset
   cross-reference construction.
 - Deterministic serialization guarantees: fixed object numbering, no

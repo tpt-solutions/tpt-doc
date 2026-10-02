@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `validate_observation` and `validate_encounter` returning structured
   `ValidationReport` values with field paths.
 - `FhirValidationError` for parse/serialization failures.
+- `From<DocError> for FhirValidationError`.
+- XML serialization validates against the XML 1.0 `Char` production and reports
+  the offending code point; JSON serialization is unaffected, since JSON can
+  represent those characters as `\uXXXX` escapes.
 - `prelude` module for single-line imports.
 
 [0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-fhir-v0.1.0

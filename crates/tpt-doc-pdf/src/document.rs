@@ -472,7 +472,10 @@ mod tests {
 
     #[test]
     fn pdf_strings_escape_specials() {
-        assert_eq!(escape_pdf_string_bytes("a(b)c\\d"), b"a\\(b\\)c\\\\d".to_vec());
+        assert_eq!(
+            escape_pdf_string_bytes("a(b)c\\d"),
+            b"a\\(b\\)c\\\\d".to_vec()
+        );
     }
 
     /// Characters in the Latin-1 range must be emitted as a single byte, matching
@@ -492,7 +495,10 @@ mod tests {
 
     #[test]
     fn winansi_high_bytes_survive_special_escaping() {
-        assert_eq!(escape_pdf_string_bytes("(é)"), vec![b'\\', b'(', 0xE9, b'\\', b')']);
+        assert_eq!(
+            escape_pdf_string_bytes("(é)"),
+            vec![b'\\', b'(', 0xE9, b'\\', b')']
+        );
         assert_eq!(escape_pdf_string_bytes("naïve\\path"), {
             let mut expected = b"na".to_vec();
             expected.push(0xEF); // ï
@@ -504,7 +510,10 @@ mod tests {
     #[test]
     fn characters_beyond_winansi_are_substituted() {
         // U+1F600 has no WinAnsi glyph; a placeholder keeps byte alignment.
-        assert_eq!(escape_pdf_string_bytes("emoji \u{1F600}"), b"emoji ?".to_vec());
+        assert_eq!(
+            escape_pdf_string_bytes("emoji \u{1F600}"),
+            b"emoji ?".to_vec()
+        );
     }
 
     #[test]

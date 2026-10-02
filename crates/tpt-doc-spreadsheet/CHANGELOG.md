@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed `Cell` enum (`String`, `Number`, `Bool`, `Null`) and `Row` with an
   explicit row index and `cells()` accessor.
 - Column-name helpers (`A`, `B`, ... `AA`) for spreadsheet addressing.
+- Cell values are validated against the XML 1.0 `Char` production, so a string
+  cell containing a C0 control is rejected with the offending code point rather
+  than producing a workbook Excel refuses to open.
 - Round-trip determinism tests plus `proptest` property tests.
 
 ### Notes

@@ -100,6 +100,33 @@ assert_eq!(segments[0].tag(), "UNB");
 # Ok::<(), tpt_doc_core::DocError>(())
 ```
 
+### Release characters
+
+EDIFACT escapes a literal separator with the release character (`?` by
+default). `Segment::elements()` returns the raw borrowed slices; call
+`elements_released()` to resolve them. Elements with no release character are
+borrowed without allocating.
+
+```rust
+use tpt_doc_edi::edifact::EdifactParser;
+
+let segments: Vec<_> = EdifactParser::new(b"UNB+UNOA:1+A?+B+C?D'")
+    .collect::<Result<Vec<_>, _>>()
+    .unwrap();
+
+// `elements()` keeps the raw wire form...
+assert_eq!(segments[0].elements()[1], "A?+B");
+
+// ...while `elements_released()` resolves it to one element containing `+`.
+let elements = segments[0].elements_released();
+assert_eq!(elements[1], "A+B");
+assert_eq!(elements[2], "CD");
+# Ok::<(), tpt_doc_core::DocError>(())
+```
+
+A truncated final segment (no terminator) and a segment with more than 128
+data elements are both reported as errors rather than being silently truncated.
+
 ## Modules
 
 | Module | Contents |

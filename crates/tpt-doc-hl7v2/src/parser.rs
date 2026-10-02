@@ -83,12 +83,18 @@ impl<'a> Hl7Parser<'a> {
 
             let start = self.pos;
             let input = self.input;
-            let end = match memchr::memchr(b'\r', &input[start..]) {
-                Some(rel) => start + rel,
-                None => input.len(),
-            };
+            // HL7 specifies CR, but CR-LF and bare LF are both common in
+            // practice, so either byte ends a segment. A CR immediately
+            // followed by LF is consumed together so CRLF does not yield an
+            // empty segment.
+            let end = memchr::memchr2(b'\r', b'\n', &input[start..])
+                .map_or(input.len(), |rel| start + rel);
             let seg_bytes = &input[start..end];
-            self.pos = end + 1;
+            self.pos = if end < input.len() && input[end] == b'\r' && input.get(end + 1) == Some(&b'\n') {
+                end + 2
+            } else {
+                end + 1
+            };
 
             let Ok(seg_str) = core::str::from_utf8(seg_bytes) else {
                 return Some(Err(DocError::invalid_format(

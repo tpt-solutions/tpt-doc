@@ -14,14 +14,59 @@ fn parse(bytes: &[u8]) -> Vec<tpt_doc_hl7v2::Segment<'_>> {
         .collect::<Result<Vec<_>, _>>()
         .expect("parse fixture")
 }
+/// HL7 v2.x specifies CR (`\r`) as the segment terminator, but real-world
+/// senders emit CR-LF or bare LF. All three must parse identically.
+#[test]
+fn crlf_and_lf_line_endings_parse_like_cr() {
+    let cr = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\rPID|1||12345";
+
+    let from_cr: Vec<_> = Hl7Parser::new(cr).collect::<Result<Vec<_>, _>>().unwrap();
+    let tags: Vec<&str> = from_cr.iter().map(|s| s.tag()).collect();
+    assert_eq!(tags, vec!["MSH", "PID"]);
+
+    // CR-LF: the LF must be skipped, not left at the start of the next segment.
+    let crlf = cr.to_vec();
+    let cr_count = crlf.iter().filter(|b| **b == b'\r').count();
+    let mut rebuilt = Vec::with_capacity(crlf.len() + cr_count);
+    for byte in &crlf {
+        rebuilt.push(*byte);
+        if *byte == b'\r' {
+            rebuilt.push(b'\n');
+        }
+    }
+    let from_crlf: Vec<_> = Hl7Parser::new(&rebuilt).collect::<Result<Vec<_>, _>>().unwrap();
+    let crlf_tags: Vec<&str> = from_crlf.iter().map(|s| s.tag()).collect();
+    assert_eq!(crlf_tags, vec!["MSH", "PID"]);
+    assert_eq!(from_crlf[1].field(3), Some("12345"), "field content must be clean");
+
+    // Bare LF: replace each CR with LF, nothing else.
+    let lf: Vec<u8> = cr
+        .iter()
+        .map(|b| if *b == b'\r' { b'\n' } else { *b })
+        .collect();
+    let from_lf: Vec<_> = Hl7Parser::new(&lf).collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(from_lf.iter().map(|s| s.tag()).collect::<Vec<_>>(), vec!["MSH", "PID"]);
+    assert_eq!(from_lf[1].field(3), Some("12345"));
+}
+
+/// A bare LF after CR (CR-LF) must not leave an empty leading segment.
+#[test]
+fn crlf_does_not_produce_empty_segments() {
+    let message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\r\nPID|1||12345\r\n";
+    let segments: Vec<_> = Hl7Parser::new(message).collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(segments.len(), 2, "no empty segments for {segments:?}");
+    assert_eq!(segments[1].tag(), "PID");
+    assert_eq!(segments[1].field(1), Some("1"));
+}
+
+
 
 /// A long run of empty segments must not recurse per segment — that overflows
 /// the stack on untrusted input.
 #[test]
 fn long_run_of_empty_segments_does_not_overflow() {
     // A valid MSH header sets the delimiters, then every segment is empty.
-    let mut message =
-        b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|MSG1|P|2.5.1\r".to_vec();
+    let mut message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|MSG1|P|2.5.1\r".to_vec();
     message.extend(std::iter::repeat_n(b'\r', 200_000));
 
     let tags: Vec<String> = Hl7Parser::new(&message)
@@ -30,7 +75,6 @@ fn long_run_of_empty_segments_does_not_overflow() {
         .expect("segments");
     assert_eq!(tags, vec!["MSH"], "only the MSH should survive");
 }
-
 
 #[test]
 fn parses_adt_a01_fixture() {

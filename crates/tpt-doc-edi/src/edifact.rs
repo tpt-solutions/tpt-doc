@@ -5,6 +5,8 @@ use tpt_doc_core::DocError;
 pub struct Segment<'a> {
     tag: &'a str,
     elements: Vec<&'a str>,
+    /// The release character in force for this segment (`?` by default).
+    release: char,
 }
 
 impl<'a> Segment<'a> {
@@ -15,10 +17,104 @@ impl<'a> Segment<'a> {
     }
 
     /// The data elements of the segment, in order.
+    ///
+    /// These are the raw slices, with any release sequences still present.
+    /// Use [`Segment::elements_released`] to resolve them.
     #[must_use]
     pub fn elements(&self) -> &[&'a str] {
         &self.elements
     }
+
+    /// The data elements with EDIFACT release sequences resolved.
+    ///
+    /// A release character followed by a separator (`+`, `:`, `?`, `'`, or a
+    /// newline) yields that separator as literal data, so `A?+B` reads as
+    /// `A+B`. A doubled release character (`??`) yields a literal `?`. Per
+    /// UN/EDIFACT ISO 9735, a release character followed by anything else is
+    /// dropped and the following character is kept.
+    ///
+    /// This allocates, unlike [`Segment::elements`], because resolving a
+    /// release sequence generally produces a new string.
+    #[must_use]
+    pub fn elements_released(&self) -> Vec<std::borrow::Cow<'a, str>> {
+        self.elements.iter().map(|e| unescape(e, self.release)).collect()
+    }
+}
+
+/// Resolve EDIFACT release sequences in `value`.
+///
+/// Returns a borrowed `Cow` when no release character is present, which is the
+/// overwhelmingly common case.
+fn unescape(value: &str, release: char) -> std::borrow::Cow<'_, str> {
+    if !value.contains(release) {
+        return std::borrow::Cow::Borrowed(value);
+    }
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch != release {
+            out.push(ch);
+            continue;
+        }
+        // A release character always consumes the next character, whatever it
+        // is; an unrecognised one is simply dropped.
+        if let Some(next) = chars.next() {
+            out.push(next);
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Split one segment into its tag and data elements.
+///
+/// A `release` character immediately before the element separator makes it
+/// literal data, so `A?+B` yields the single element `A+B`. The returned
+/// slices are still views into `segment`; release sequences remain in place
+/// and are resolved by [`Segment::elements_released`].
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] for an empty tag, or when the segment
+/// carries more than `MAX_ELEMENTS` data elements.
+fn split_elements(
+    segment: &str,
+    elem_sep: char,
+    release: char,
+) -> Result<(&str, Vec<&str>), DocError> {
+    const MAX_ELEMENTS: usize = 128;
+
+    let mut parts: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    let chars = segment.char_indices().peekable();
+
+    for (index, ch) in chars {
+        if ch != elem_sep {
+            continue;
+        }
+        // A separator released by the preceding character is literal data, so
+        // this is not a boundary; leave the pair in the slice.
+        let released = segment[..index].ends_with(release)
+            && segment[..index].chars().rev().take_while(|c| *c == release).count() % 2 == 1;
+        if released {
+            continue;
+        }
+        parts.push(&segment[start..index]);
+        start = index + ch.len_utf8();
+    }
+    parts.push(&segment[start..]);
+
+    let mut parts = parts.into_iter();
+    let tag = match parts.next() {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err(DocError::invalid_format("empty segment tag")),
+    };
+    let elements: Vec<&str> = parts.collect();
+    if elements.len() > MAX_ELEMENTS {
+        return Err(DocError::invalid_format(format!(
+            "segment {tag} has {} data elements, exceeding the {MAX_ELEMENTS} limit",
+            elements.len()
+        )));
+    }
+    Ok((tag, elements))
 }
 
 /// Streaming EDIFACT message parser.
@@ -83,9 +179,20 @@ impl<'a> EdifactParser<'a> {
                 return None;
             }
 
-            // Find the segment terminator
             let start = self.pos;
-            let end = memchr::memchr(self.seg_term, &self.input[start..])?;
+            // Find the segment terminator. A trailing segment with no terminator
+            // is a truncated message, which must be reported rather than
+            // silently discarding the data after the last `'`.
+            let Some(end) = memchr::memchr(self.seg_term, &self.input[start..])
+            else {
+                let remainder = self.input.len() - start;
+                // Exhaust the parser: without advancing, a caller that keeps
+                // iterating would receive this same error forever.
+                self.pos = self.input.len();
+                return Some(Err(DocError::invalid_format(format!(
+                    "unterminated segment ({remainder} trailing bytes, no terminator)"
+                ))));
+            };
             let seg_bytes = &self.input[start..start + end];
             self.pos = start + end + 1;
 
@@ -107,16 +214,22 @@ impl<'a> EdifactParser<'a> {
                 continue;
             }
 
-            // Split on element separator
+            // Split on the element separator, but only where the separator is not
+            // released. Splitting first and unescaping afterwards would cut
+            // `A?+B` into two elements, so the split walks the string and
+            // treats `?<sep>` as literal data.
             let elem_sep = self.elem_sep as char;
-            let mut parts = seg_str.splitn(64, elem_sep);
-            let tag = match parts.next() {
-                Some(t) if !t.is_empty() => t,
-                _ => return Some(Err(DocError::invalid_format("empty segment tag"))),
-            };
+            let release = self.release as char;
 
-            let elements: Vec<&str> = parts.collect();
-            return Some(Ok(Segment { tag, elements }));
+            let (tag, elements) = match split_elements(seg_str, elem_sep, release) {
+                Ok(parts) => parts,
+                Err(e) => return Some(Err(e)),
+            };
+            return Some(Ok(Segment {
+                tag,
+                elements,
+                release,
+            }));
         }
     }
 }

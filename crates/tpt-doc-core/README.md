@@ -110,6 +110,40 @@ assert!(Doc::from_bytes(b"").is_err());
 |---|---|---|
 | `std` | yes | Enables `std::io` integration and the `DocError::Io` variant. |
 
+## Modules
+
+| Module | Contents |
+|---|---|
+| `buf` | `BufSlice` — zero-copy borrowed byte views. |
+| `error` | `DocError` — the workspace-wide error type. |
+| `traits` | `DocReader`, `DocWriter`, `Validate`, `ValidationReport`. |
+| `xml` | `escape_xml_text`, `validate_xml_chars`, `is_xml_char`. |
+
+## XML text helpers
+
+Every XML-producing crate in this workspace needs the same two guarantees, so
+they live here rather than being reimplemented five times. XML 1.0 permits only
+`U+0009`, `U+000A`, `U+000D`, and code points from `U+0020` upward (excluding the
+surrogate range and `U+FFFE`/`U+FFFF`); other control characters cannot be
+represented in a document at all.
+
+```rust
+use tpt_doc_core::escape_xml_text;
+
+// Legal text is escaped and returned.
+assert_eq!(
+    escape_xml_text("Smith & Sons <Ltd>")?,
+    "Smith &amp; Sons &lt;Ltd&gt;"
+);
+
+// A raw C0 control is rejected rather than written into the XML.
+assert!(escape_xml_text("bad\u{1}value").is_err());
+
+// Tab, newline and carriage return are legal and pass through.
+assert_eq!(escape_xml_text("a\tb\nc\rd")?, "a\tb\nc\rd");
+# Ok::<(), tpt_doc_core::DocError>(())
+```
+
 ## Safety and quality guarantees
 
 - `#![forbid(unsafe_code)]`

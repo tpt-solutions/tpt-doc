@@ -131,6 +131,31 @@ let bytes = pdf.write()?;
 # Ok::<(), tpt_doc_core::DocError>(())
 ```
 
+## Character validation
+
+XML 1.0 forbids C0 control characters other than tab, newline and carriage
+return. `Invoice::to_xml` reports an error naming the offending code point
+rather than emitting an invoice a PEPPOL receiver will reject. This covers
+party names and addresses, line item names, the invoice ID, and the currency
+code.
+
+```rust
+use tpt_doc_ubl::prelude::*;
+use time::{Date, Month};
+
+let date = Date::from_calendar_date(2026, Month::January, 15).unwrap();
+let invoice = Invoice::new(
+    "INV-CTRL",
+    InvoiceTypeCode::Invoice,
+    date,
+    Party::new("Bad\u{1}Supplier"),
+    Party::new("Customer"),
+);
+let err = invoice.to_xml().expect_err("U+0001 is not legal in XML");
+assert!(err.to_string().contains("U+0001"));
+# Ok::<(), tpt_doc_core::DocError>(())
+```
+
 ## Modules
 
 | Module | Contents |

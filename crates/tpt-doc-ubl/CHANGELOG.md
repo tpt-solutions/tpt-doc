@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   UBL invoice XML into a PDF as an associated file (Factur-X / ZUGFeRD),
   depending on `tpt-doc-pdf`.
 - `prelude` module for single-line imports.
+- Emitted text is validated against the XML 1.0 `Char` production, so a C0
+  control in a party name, line item, invoice ID, or currency code is reported
+  with its code point rather than producing an invoice a PEPPOL receiver rejects.
 - Integration tests covering round-tripping, arithmetic totals, and validation
   failures, plus `proptest` property tests.
 

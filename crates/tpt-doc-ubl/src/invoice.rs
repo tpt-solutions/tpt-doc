@@ -1,6 +1,6 @@
-use tpt_doc_core::escape_xml_text;
 use serde::{Deserialize, Serialize};
 use tpt_doc_core::DocError;
+use tpt_doc_core::escape_xml_text;
 
 use crate::types::{
     Address, InvoiceLine, IssueDate, MonetaryTotal, Party, TaxCategory, TaxSubtotal, round2,
@@ -756,10 +756,11 @@ mod tests {
     }
 
     /// A control character cannot be represented in XML. Writing it raw yields an
-/// invoice that PEPPOL receivers reject, so serialization must fail instead.
-#[test]
+    /// invoice that PEPPOL receivers reject, so serialization must fail instead.
+    #[test]
     fn illegal_control_characters_are_rejected_not_written_raw() {
-        let date = time::Date::from_calendar_date(2026, time::Month::January, 15).expect("valid date");
+        let date =
+            time::Date::from_calendar_date(2026, time::Month::January, 15).expect("valid date");
 
         // In the supplier name.
         let invoice = Invoice::new(
@@ -787,7 +788,8 @@ mod tests {
 
     #[test]
     fn tab_newline_and_return_are_accepted() {
-        let date = time::Date::from_calendar_date(2026, time::Month::January, 15).expect("valid date");
+        let date =
+            time::Date::from_calendar_date(2026, time::Month::January, 15).expect("valid date");
         let invoice = Invoice::new(
             "INV-WS",
             InvoiceTypeCode::Invoice,

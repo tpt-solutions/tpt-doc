@@ -7,7 +7,7 @@
 
 use ring::rand::SystemRandom;
 use tpt_doc_fhir::prelude::*;
-use tpt_doc_sign::{cades, pem, PrivateKey};
+use tpt_doc_sign::{PrivateKey, cades, pem};
 
 /// The README snippet, verbatim apart from the PEM paths and the error type.
 #[test]
@@ -29,8 +29,7 @@ fn readme_quick_start_compiles_and_runs() -> Result<(), Box<dyn std::error::Erro
     // Detached CAdES signature over those bytes, for HIPC 2020 audit trails.
     let key = PrivateKey::from_pem(include_bytes!("fixtures/test_key.pem"))?;
     let cert_der = pem::pem_to_der(include_bytes!("fixtures/test_cert.pem"))?;
-    let signature =
-        cades::sign_detached(&json_bytes, &key, &cert_der, &SystemRandom::new())?;
+    let signature = cades::sign_detached(&json_bytes, &key, &cert_der, &SystemRandom::new())?;
     assert!(!signature.is_empty(), "signature must not be empty");
 
     Ok(())

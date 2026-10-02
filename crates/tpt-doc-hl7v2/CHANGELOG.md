@@ -19,7 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `schema` module: TSV-compiled `SegmentTables`, `FieldDef`, `Hl7Violation`,
   the embedded `v251()` (HL7 v2.5.1) tables, `SegmentTables::definition()`,
   `SegmentTables::validate_segment()`, and `validate_message()`.
+- `Message::to_bytes` escapes field values: the field separator and escape
+  character become `\F\` and `\E\`, and CR/LF become `\X0D\`/`\X0A\`, so a
+  delimiter inside free text can no longer corrupt the message structure.
+  Component, repetition, and subcomponent separators are left intact because a
+  field value is expected to carry them.
 - `prelude` module for single-line imports.
 - `proptest` property tests for delimiter edge cases.
+- The parser accepts CR, CRLF, and bare LF segment terminators, so messages
+  written with common Windows or Unix line endings parse identically instead of
+  collapsing into a single segment.
 
 [0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-hl7v2-v0.1.0

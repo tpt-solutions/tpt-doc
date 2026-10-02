@@ -46,14 +46,23 @@ impl<'a> X12Parser<'a> {
         if &input[..3] != b"ISA" {
             return Err(DocError::invalid_format("X12 input must start with ISA"));
         }
-        // ISA01 is the element separator; ISA16 is the component separator.
+        // ISA01 is the element separator; ISA11 is the repetition separator
+        // (repeats are separated by ISA11 and repeated elements by the
+        // sub-element separator); ISA16 is the component separator. All three
+        // sit at fixed offsets in the 106-byte envelope.
         let elem_sep = input[3];
+        let repeat_sep = input[82];
         let comp_sep = input[104];
         let seg_term = input[105];
 
         if elem_sep == b'\r' || elem_sep == b'\n' || !elem_sep.is_ascii_graphic() {
             return Err(DocError::invalid_format(format!(
                 "X12 ISA01 element separator {elem_sep:#04x} is not a printable character"
+            )));
+        }
+        if !repeat_sep.is_ascii_graphic() {
+            return Err(DocError::invalid_format(format!(
+                "X12 ISA11 repetition separator {repeat_sep:?} is not printable"
             )));
         }
         if !comp_sep.is_ascii_graphic() {
@@ -79,6 +88,12 @@ impl<'a> X12Parser<'a> {
             seg_term,
         })
     }
+
+    /// The repetition separator from ISA11.
+    #[must_use]
+    pub fn repetition_separator(&self) -> u8 {
+        self.input[82]
+    }
 }
 
 impl<'a> Iterator for X12Parser<'a> {
@@ -92,8 +107,20 @@ impl<'a> Iterator for X12Parser<'a> {
                 return None;
             }
 
-        let start = self.pos;
-            let end = memchr::memchr(self.seg_term, &self.input[start..])?;
+            let start = self.pos;
+            // A trailing segment with no terminator means the interchange was
+            // truncated in transit. Reporting it beats silently discarding
+            // whatever followed the last terminator.
+            let Some(end) = memchr::memchr(self.seg_term, &self.input[start..])
+            else {
+                let remainder = self.input.len() - start;
+                // Exhaust the parser so a caller that keeps iterating does not
+                // receive this error forever.
+                self.pos = self.input.len();
+                return Some(Err(DocError::invalid_format(format!(
+                    "unterminated X12 segment ({remainder} trailing bytes, no terminator)"
+                ))));
+            };
             let seg_bytes = &self.input[start..start + end];
             self.pos = start + end + 1;
 

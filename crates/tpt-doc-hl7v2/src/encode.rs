@@ -100,7 +100,7 @@ impl Message {
         &self.segments
     }
 
-/// Serialize the message to `\r`-terminated, `\r`-delimited bytes.
+    /// Serialize the message to `\r`-terminated, `\r`-delimited bytes.
     ///
     /// Field values are escaped via [`escape_value`], so a delimiter inside
     /// data cannot corrupt the message structure. MSH-2 is left verbatim
@@ -213,7 +213,13 @@ mod tests {
     #[test]
     fn delimiters_inside_field_values_are_escaped() {
         let mut msg = Message::msh(
-            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+            "HIS",
+            "ACME",
+            "RIS",
+            "ACME",
+            "20261001120000",
+            "ADT^A01",
+            "MSG1",
         );
         msg.push_segment("NTE", &["1", r"Surname: O'Fahey | given: A*B"]);
         let bytes = msg.to_bytes();
@@ -225,7 +231,13 @@ mod tests {
     #[test]
     fn every_encoding_character_is_escaped() {
         let mut msg = Message::msh(
-            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+            "HIS",
+            "ACME",
+            "RIS",
+            "ACME",
+            "20261001120000",
+            "ADT^A01",
+            "MSG1",
         );
         msg.push_segment("NTE", &["1", "a|b^c~d\\e&f"]);
         let bytes = msg.to_bytes();
@@ -239,7 +251,13 @@ mod tests {
     #[test]
     fn carriage_returns_and_newlines_in_values_are_escaped() {
         let mut msg = Message::msh(
-            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+            "HIS",
+            "ACME",
+            "RIS",
+            "ACME",
+            "20261001120000",
+            "ADT^A01",
+            "MSG1",
         );
         msg.push_segment("NTE", &["1", "line one\rline two\nline three"]);
         let bytes = msg.to_bytes();
@@ -253,11 +271,19 @@ mod tests {
     #[test]
     fn escape_sequences_are_reversed_on_read() {
         let mut msg = Message::msh(
-            "HIS", "ACME", "RIS", "ACME", "20261001120000", "ADT^A01", "MSG1",
+            "HIS",
+            "ACME",
+            "RIS",
+            "ACME",
+            "20261001120000",
+            "ADT^A01",
+            "MSG1",
         );
         msg.push_segment("NTE", &["1", "a|b^c"]);
         let bytes = msg.to_bytes();
-        let segs: Vec<_> = Hl7Parser::new(&bytes).collect::<Result<Vec<_>, _>>().expect("parse");
+        let segs: Vec<_> = Hl7Parser::new(&bytes)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("parse");
         assert_eq!(segs[1].field(2), Some("a\\F\\b^c"));
     }
 

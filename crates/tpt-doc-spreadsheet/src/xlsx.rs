@@ -2,9 +2,9 @@ use std::fmt::Write as _;
 use std::io::{Read, Write};
 
 use quick_xml::XmlVersion;
-use tpt_doc_core::escape_xml_text;
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
+use tpt_doc_core::escape_xml_text;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
@@ -217,8 +217,7 @@ impl RowsIter<'_> {
         let column = state.column.unwrap_or(self.row_cells.len());
         let cell = state.finish(self.shared);
         if self.row_cells.len() < column {
-            self.row_cells
-                .resize_with(column, || Cell::Blank);
+            self.row_cells.resize_with(column, || Cell::Blank);
         }
         if column < self.row_cells.len() {
             // An out-of-order or duplicate reference: keep the first value
@@ -261,9 +260,7 @@ impl Iterator for RowsIter<'_> {
                                 Some("str") => CellKind::FormulaString,
                                 _ => CellKind::Number,
                             },
-                            column: Self::attr(&start, "r")
-                                .as_deref()
-                                .and_then(column_index),
+                            column: Self::attr(&start, "r").as_deref().and_then(column_index),
                             ..CellState::default()
                         };
                     }
@@ -576,7 +573,7 @@ fn build_sheet_xml(rows: &[Row]) -> Result<String, DocError> {
 mod tests {
     use super::*;
 
-        /// A sparse worksheet: row 1 skips column C, and row 3 has one cell in
+    /// A sparse worksheet: row 1 skips column C, and row 3 has one cell in
     /// column C. Cells carry explicit `r` references naming their column.
     const SPARSE_SHEET: &str = concat!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
@@ -598,7 +595,10 @@ mod tests {
             sheet: xml.as_bytes().to_vec(),
             shared_strings: Vec::new(),
         };
-        reader.rows().collect::<Result<Vec<_>, _>>().expect("parse sheet")
+        reader
+            .rows()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("parse sheet")
     }
 
     #[test]
@@ -652,43 +652,47 @@ mod tests {
     }
 
     /// A string cell containing a control character cannot be represented in XML.
-/// Writing it raw produces a workbook that conforming parsers reject, so the
-/// writer must fail instead.
-#[test]
-fn illegal_control_characters_are_rejected_not_written_raw() {
-    let rows = vec![Row {
-        index: 1,
-        cells: vec![Cell::String("bad\u{1}value".to_owned())],
-    }];
-
-    let err = build_sheet_xml(&rows).expect_err("U+0001 must be rejected");
-    assert!(
-        err.to_string().contains("U+0001"),
-        "error should name the code point: {err}"
-    );
-
-    // The same rejection must surface from the public writer.
-    let mut writer = XlsxWriter::new();
-    writer.push_row(rows[0].clone());
-    let err = writer.finish().expect_err("writer must refuse illegal XML");
-    assert!(err.to_string().contains("U+0001"), "{err}");
-}
-
-#[test]
-fn tab_newline_and_return_are_accepted_in_cells() {
-    let rows = vec![Row {
-        index: 1,
-        cells: vec![Cell::String("a\tb\nc\rd".to_owned())],
-    }];
-    let xml = build_sheet_xml(&rows).expect("these three controls are legal XML");
-    assert!(xml.contains("a\tb\nc\rd"));
-}
-
-#[test]
-fn writer_round_trips_its_own_blank_cells() {
+    /// Writing it raw produces a workbook that conforming parsers reject, so the
+    /// writer must fail instead.
+    #[test]
+    fn illegal_control_characters_are_rejected_not_written_raw() {
         let rows = vec![Row {
             index: 1,
-            cells: vec![Cell::String("a".to_owned()), Cell::Blank, Cell::String("c".to_owned())],
+            cells: vec![Cell::String("bad\u{1}value".to_owned())],
+        }];
+
+        let err = build_sheet_xml(&rows).expect_err("U+0001 must be rejected");
+        assert!(
+            err.to_string().contains("U+0001"),
+            "error should name the code point: {err}"
+        );
+
+        // The same rejection must surface from the public writer.
+        let mut writer = XlsxWriter::new();
+        writer.push_row(rows[0].clone());
+        let err = writer.finish().expect_err("writer must refuse illegal XML");
+        assert!(err.to_string().contains("U+0001"), "{err}");
+    }
+
+    #[test]
+    fn tab_newline_and_return_are_accepted_in_cells() {
+        let rows = vec![Row {
+            index: 1,
+            cells: vec![Cell::String("a\tb\nc\rd".to_owned())],
+        }];
+        let xml = build_sheet_xml(&rows).expect("these three controls are legal XML");
+        assert!(xml.contains("a\tb\nc\rd"));
+    }
+
+    #[test]
+    fn writer_round_trips_its_own_blank_cells() {
+        let rows = vec![Row {
+            index: 1,
+            cells: vec![
+                Cell::String("a".to_owned()),
+                Cell::Blank,
+                Cell::String("c".to_owned()),
+            ],
         }];
         let xml = build_sheet_xml(&rows).expect("legal XML");
         let parsed = parse_sheet(&xml);
@@ -696,7 +700,7 @@ fn writer_round_trips_its_own_blank_cells() {
     }
 
     #[test]
-fn column_names_progress_like_excel() {
+    fn column_names_progress_like_excel() {
         assert_eq!(column_name(0), "A");
         assert_eq!(column_name(25), "Z");
         assert_eq!(column_name(26), "AA");
