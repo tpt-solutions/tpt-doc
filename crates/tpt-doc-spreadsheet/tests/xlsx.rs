@@ -4,6 +4,7 @@
 //! hand-written OOXML parts — deliberately independent of `XlsxWriter` — so
 //! the fixture tests exercise real ZIP/XML interop.
 
+use tpt_doc_core::Limits;
 use tpt_doc_spreadsheet::xlsx::{Cell, Row, XlsxReader, XlsxWriter};
 
 fn fixture_bytes() -> Vec<u8> {
@@ -12,6 +13,168 @@ fn fixture_bytes() -> Vec<u8> {
         "/tests/fixtures/simple.xlsx"
     ))
     .expect("fixture file")
+}
+
+/// A minimal single-row `.xlsx` with `rows` rows, built here rather than in a
+/// fixture file so the row count can be tuned per test.
+fn workbook_with_rows(rows: u32) -> Vec<u8> {
+    let mut writer = XlsxWriter::new();
+    for index in 1..=rows {
+        writer.push_row(Row {
+            index,
+            cells: vec![Cell::Number(f64::from(index))],
+        });
+    }
+    writer.finish().expect("write workbook")
+}
+
+/// A `.xlsx` whose worksheet part is `nested` elements deep inside `sheetData`.
+fn workbook_with_nesting(nested: u32) -> Vec<u8> {
+    let open = "<a>".repeat(nested as usize);
+    let close = "</a>".repeat(nested as usize);
+    let sheet = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{open}<row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c></row>{close}</sheetData></worksheet>"#
+    );
+    zipped_package(&sheet)
+}
+
+/// Wrap worksheet XML in the OOXML package parts a reader needs.
+fn zipped_package(sheet: &str) -> Vec<u8> {
+    use std::io::Write as _;
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
+
+    let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (name, body) in [
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+        ),
+        (
+            "xl/workbook.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#,
+        ),
+        ("xl/worksheets/sheet1.xml", sheet),
+    ] {
+        zip.start_file(name, options).expect("start entry");
+        zip.write_all(body.as_bytes()).expect("write entry");
+    }
+    zip.finish().expect("finish zip").into_inner()
+}
+
+/// A sheet count at the limit parses; past it, the reader must report an error
+/// rather than silently truncating the data.
+#[test]
+fn max_rows_is_enforced() {
+    let bytes = workbook_with_rows(5);
+    let limits = Limits {
+        max_rows: 5,
+        ..Limits::default()
+    };
+    let mut reader = XlsxReader::with_limits(&bytes, limits).expect("reader");
+    let rows: Vec<Row> = reader
+        .rows()
+        .collect::<Result<Vec<_>, _>>()
+        .expect("at the limit");
+    assert_eq!(rows.len(), 5);
+
+    let limits = Limits {
+        max_rows: 3,
+        ..Limits::default()
+    };
+    let mut reader = XlsxReader::with_limits(&bytes, limits).expect("reader");
+    let mut rows = reader.rows();
+    let mut seen = 0;
+    let error = loop {
+        match rows.next() {
+            Some(Ok(_)) => seen += 1,
+            Some(Err(e)) => break e,
+            None => panic!("expected a row-limit error, got {seen} rows"),
+        }
+    };
+    assert_eq!(seen, 3, "rows up to the limit are still yielded");
+    assert!(error.to_string().contains("3 row limit"), "{error}");
+}
+
+/// Nesting deeper than `max_xml_depth` is refused rather than walked, which is
+/// what stops a nesting bomb from exhausting the parser's own stack.
+#[test]
+fn max_xml_depth_is_enforced() {
+    let bytes = workbook_with_nesting(6);
+    let limits = Limits {
+        max_xml_depth: 4,
+        ..Limits::default()
+    };
+    let mut reader = XlsxReader::with_limits(&bytes, limits).expect("reader");
+    let error = reader
+        .rows()
+        .collect::<Result<Vec<_>, _>>()
+        .expect_err("nesting bomb must be rejected");
+    assert!(error.to_string().contains("4 level limit"), "{error}");
+}
+
+/// The depth bound applies to the shared strings table too, since it is parsed
+/// by the same reader before the worksheet.
+#[test]
+fn max_xml_depth_is_enforced_in_shared_strings() {
+    let sheet = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>"#;
+    let bytes = zipped_package_with_extra(sheet, "<sst><r><rPh>".to_owned());
+    let limits = Limits {
+        max_xml_depth: 2,
+        ..Limits::default()
+    };
+    // `XlsxReader` holds the whole worksheet, so it is not `Debug` and
+    // `expect_err` is unavailable; match instead.
+    let error = match XlsxReader::with_limits(&bytes, limits) {
+        Ok(_) => panic!("a shared strings table nested past the limit must be rejected"),
+        Err(e) => e,
+    };
+    assert!(error.to_string().contains("level limit"), "{error}");
+}
+
+/// Build a package whose shared strings table contains `prefix` (unclosed).
+fn zipped_package_with_extra(sheet: &str, prefix: String) -> Vec<u8> {
+    use std::io::Write as _;
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
+
+    let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (name, body) in [
+        (
+            "[Content_Types].xml",
+            r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+        ),
+        (
+            "xl/workbook.xml",
+            r#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#,
+        ),
+        ("xl/worksheets/sheet1.xml", sheet),
+    ] {
+        zip.start_file(name, options).expect("start entry");
+        zip.write_all(body.as_bytes()).expect("write entry");
+    }
+    zip.start_file("xl/sharedStrings.xml", options)
+        .expect("start sst");
+    zip.write_all(prefix.as_bytes()).expect("write sst");
+    zip.finish().expect("finish zip").into_inner()
 }
 
 // The fixture deliberately contains a well-known decimal literal (3.14).

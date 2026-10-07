@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::io::Write as _;
 
 use flate2::Compression;
@@ -89,8 +90,10 @@ impl Document {
     /// documents produce byte-identical output.
     ///
     /// # Errors
-    /// Returns [`DocError`] on serialization failure.
+    /// Returns [`DocError`] on serialization failure, or if a page references a
+    /// font or image id that was never embedded.
     pub fn write(self) -> Result<Vec<u8>, DocError> {
+        self.validate_references()?;
         let mut writer = ObjectWriter::new();
 
         // Object numbering plan:
@@ -144,9 +147,10 @@ impl Document {
                 ImageFilter::FlateDecode => "/FlateDecode",
             };
             let header = format!(
-                "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter {filter} /Length {} >>\nstream\n",
+                "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {} /BitsPerComponent 8 /Filter {filter} /Length {} >>\nstream\n",
                 image.width,
                 image.height,
+                image.color_space.pdf_name(),
                 image.data.len()
             );
             let mut body = header.into_bytes();
@@ -189,15 +193,15 @@ impl Document {
                 .collect();
             let body = format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {} >> /XObject << {} >> >> /Contents {} 0 R >>\n",
-                format_number(page.width),
-                format_number(page.height),
+                format_number(page.width)?,
+                format_number(page.height)?,
                 font_resources.join(" "),
                 image_resources.join(" "),
                 page_id + 1
             );
             writer.write_object(body.as_bytes());
 
-            let content = content_stream(page.operations());
+            let content = content_stream(page.operations())?;
             let compressed = deflate(&content)?;
             let stream = format!(
                 "<< /Length {} /Filter /FlateDecode >>\nstream\n",
@@ -212,12 +216,64 @@ impl Document {
         // Cross-reference table and trailer.
         Ok(writer.finish())
     }
+
+    /// Check that every font and image id a page names was actually embedded.
+    ///
+    /// Ids are returned by `embed_*` and passed straight back by callers, so a
+    /// stale or hand-written id is easy to produce. Emitting it would produce
+    /// a resource dictionary naming an object number that does not exist,
+    /// which conforming readers treat as a corrupt file.
+    fn validate_references(&self) -> Result<(), DocError> {
+        for (index, page) in self.pages.iter().enumerate() {
+            for id in page.used_fonts() {
+                if id >= self.fonts.len() {
+                    return Err(DocError::invalid_format(format!(
+                        "page {} references font {id}, but only {} font(s) are embedded",
+                        index + 1,
+                        self.fonts.len()
+                    )));
+                }
+            }
+            for id in page.used_images() {
+                if id >= self.images.len() {
+                    return Err(DocError::invalid_format(format!(
+                        "page {} references image {id}, but only {} image(s) are embedded",
+                        index + 1,
+                        self.images.len()
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Escape a MIME subtype for use as a PDF name object (`/Subtype`).
+///
+/// PDF names are delimited by whitespace and `()<>[]{}/%`, and `#` starts an
+/// escape — all of which must be escaped, not just `/`. A subtype taken from
+/// untrusted input can otherwise inject arbitrary syntax into the dictionary.
+fn pdf_name_token(token: &str) -> String {
+    let mut out = String::with_capacity(token.len());
+    for byte in token.bytes() {
+        let regular = byte.is_ascii_graphic()
+            && !matches!(
+                byte,
+                b'#' | b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%'
+            );
+        if regular {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "#{byte:02X}");
+        }
+    }
+    out
 }
 
 /// Emit the two objects of one file attachment: the embedded file stream
 /// and its filespec dictionary.
 fn write_attachment(writer: &mut ObjectWriter, attachment: &Attachment) {
-    let subtype = attachment.mime_subtype.replace('/', "#2F");
+    let subtype = pdf_name_token(&attachment.mime_subtype);
     // The filespec's /EF must reference the embedded stream written below,
     // so capture its object id before the stream is registered.
     let stream_id = writer.next_object_id();
@@ -329,7 +385,10 @@ impl ObjectWriter {
 }
 
 /// Render content operations to PDF content-stream text.
-fn content_stream(operations: &[crate::page::ContentOp]) -> Vec<u8> {
+///
+/// # Errors
+/// Returns [`DocError::InvalidFormat`] if any coordinate is NaN or infinite.
+fn content_stream(operations: &[crate::page::ContentOp]) -> Result<Vec<u8>, DocError> {
     let mut stream = Vec::new();
     for op in operations {
         match op {
@@ -346,9 +405,9 @@ fn content_stream(operations: &[crate::page::ContentOp]) -> Vec<u8> {
                     stream,
                     "BT /F{} {} Tf {} {} Td (",
                     font_id + 1,
-                    format_number(*size),
-                    format_number(*x),
-                    format_number(*y)
+                    format_number(*size)?,
+                    format_number(*x)?,
+                    format_number(*y)?
                 );
                 stream.extend_from_slice(&escape_pdf_string_bytes(content));
                 let _ = writeln!(stream, ") Tj ET");
@@ -363,10 +422,10 @@ fn content_stream(operations: &[crate::page::ContentOp]) -> Vec<u8> {
                 let _ = writeln!(
                     stream,
                     "q {} 0 0 {} {} {} cm /Im{} Do Q",
-                    format_number(*width),
-                    format_number(*height),
-                    format_number(*x),
-                    format_number(*y),
+                    format_number(*width)?,
+                    format_number(*height)?,
+                    format_number(*x)?,
+                    format_number(*y)?,
                     image_id + 1
                 );
             }
@@ -379,15 +438,15 @@ fn content_stream(operations: &[crate::page::ContentOp]) -> Vec<u8> {
                 let _ = writeln!(
                     stream,
                     "{} {} {} {} re S",
-                    format_number(*x),
-                    format_number(*y),
-                    format_number(*width),
-                    format_number(*height)
+                    format_number(*x)?,
+                    format_number(*y)?,
+                    format_number(*width)?,
+                    format_number(*height)?
                 );
             }
         }
     }
-    stream
+    Ok(stream)
 }
 
 /// zlib-compress content at a fixed level for deterministic output.
@@ -402,18 +461,28 @@ fn deflate(content: &[u8]) -> Result<Vec<u8>, DocError> {
 }
 
 /// Format a number without a trailing `.0`: integers stay integers.
-fn format_number(value: f32) -> String {
+///
+/// A non-finite value would format as `NaN`/`inf`, which is not valid PDF
+/// syntax and corrupts the content stream, so it is rejected here rather than
+/// emitted. Callers pass layout arithmetic results, where a division by zero or
+/// an overflowing measurement is otherwise easy to miss.
+fn format_number(value: f32) -> Result<String, DocError> {
+    if !value.is_finite() {
+        return Err(DocError::invalid_format(format!(
+            "cannot write non-finite number {value} to a PDF content stream"
+        )));
+    }
     if value.fract() == 0.0 && value.abs() < 1e10 {
         // Fractional part is intentionally discarded for whole numbers.
         #[allow(clippy::cast_possible_truncation)]
         let whole = value as i64;
-        format!("{whole}")
+        Ok(format!("{whole}"))
     } else {
         let formatted = format!("{value:.2}");
-        formatted
+        Ok(formatted
             .trim_end_matches('0')
             .trim_end_matches('.')
-            .to_owned()
+            .to_owned())
     }
 }
 
@@ -464,10 +533,126 @@ mod tests {
 
     #[test]
     fn format_number_trims_fractional_zeros() {
-        assert_eq!(format_number(595.0), "595");
-        assert_eq!(format_number(72.5), "72.5");
-        assert_eq!(format_number(72.25), "72.25");
-        assert_eq!(format_number(72.20), "72.2");
+        assert_eq!(format_number(595.0).expect("595"), "595");
+        assert_eq!(format_number(72.5).expect("72.5"), "72.5");
+        assert_eq!(format_number(72.25).expect("72.25"), "72.25");
+        assert_eq!(format_number(72.20).expect("72.2"), "72.2");
+    }
+
+    /// `NaN`/`inf` would be written as bare words into the content stream,
+    /// which conforming readers reject, so they are refused at the source.
+    #[test]
+    fn format_number_rejects_non_finite_values() {
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let err = format_number(value).expect_err("non-finite must be rejected");
+            assert!(err.to_string().contains("non-finite"), "{err}");
+        }
+    }
+
+    /// A NaN coordinate from layout arithmetic must fail the whole document,
+    /// not produce a content stream that no reader can parse.
+    #[test]
+    fn a_non_finite_coordinate_fails_the_document() {
+        let mut doc = Document::new();
+        let font = doc.embed_builtin_font(Font::Helvetica);
+        let mut page = Page::a4();
+        page.text("x", font, 12.0, (f32::NAN, 700.0));
+        doc.add_page(page);
+        assert!(doc.write().is_err());
+
+        let mut doc = Document::new();
+        let mut page = Page::a4();
+        page.width = f32::INFINITY;
+        doc.add_page(page);
+        assert!(doc.write().is_err());
+    }
+
+    /// A font or image id that was never embedded would name a nonexistent
+    /// object number in the resource dictionary.
+    #[test]
+    fn dangling_font_and_image_ids_are_rejected() {
+        let mut doc = Document::new();
+        let mut page = Page::a4();
+        page.text("orphan", 7, 12.0, (72.0, 700.0));
+        doc.add_page(page);
+        let err = doc.write().expect_err("dangling font id");
+        assert!(err.to_string().contains("font 7"), "{err}");
+
+        let mut doc = Document::new();
+        let mut page = Page::a4();
+        page.image(3, 10.0, 10.0, 20.0, 20.0);
+        doc.add_page(page);
+        let err = doc.write().expect_err("dangling image id");
+        assert!(err.to_string().contains("image 3"), "{err}");
+    }
+
+    /// A valid id still resolves, so the new check does not reject real work.
+    #[test]
+    fn embedded_ids_still_serialize() {
+        let mut doc = Document::new();
+        let font = doc.embed_builtin_font(Font::Helvetica);
+        let image = doc.embed_image(tiny_png_image());
+        let mut page = Page::a4();
+        page.text("ok", font, 12.0, (72.0, 700.0));
+        page.image(image, 10.0, 10.0, 20.0, 20.0);
+        doc.add_page(page);
+        assert!(doc.write().is_ok());
+    }
+
+    /// A 1x1 white PNG, built inline so the test has no fixture dependency.
+    fn tiny_png_image() -> Image {
+        use std::io::Write as _;
+
+        let raw = [0u8, 0xFF, 0xFF, 0xFF]; // filter None + one RGB pixel
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw).expect("deflate");
+        let idat = encoder.finish().expect("finish deflate");
+
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let ihdr = {
+            let mut chunk = Vec::new();
+            chunk.extend_from_slice(&1u32.to_be_bytes()); // width
+            chunk.extend_from_slice(&1u32.to_be_bytes()); // height
+            chunk.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit RGB, no interlace
+            chunk
+        };
+        for (kind, data) in [(&b"IHDR"[..], &ihdr[..]), (&b"IDAT"[..], &idat[..])] {
+            png.extend_from_slice(&u32::try_from(data.len()).expect("tiny png").to_be_bytes());
+            png.extend_from_slice(kind);
+            png.extend_from_slice(data);
+            let mut crc_input = kind.to_vec();
+            crc_input.extend_from_slice(data);
+            png.extend_from_slice(&png_crc32(&crc_input).to_be_bytes());
+        }
+        Image::from_png(&png).expect("tiny png decodes")
+    }
+
+    /// CRC-32 (IEEE), matching the PNG chunk requirement.
+    fn png_crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &byte in data {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    /// `/Subtype` is a PDF name, so every delimiter (not just `/`) must be
+    /// escaped — otherwise an attacker-chosen subtype injects dictionary syntax.
+    #[test]
+    fn mime_subtype_delimiters_are_escaped() {
+        assert_eq!(pdf_name_token("text/xml"), "text#2Fxml");
+        assert_eq!(pdf_name_token("a b"), "a#20b");
+        assert_eq!(pdf_name_token("a)>>"), "a#29#3E#3E");
+        assert_eq!(pdf_name_token("a#b"), "a#23b");
+        // A PDF name escape is a byte value, so a non-ASCII character is
+        // escaped as its UTF-8 bytes.
+        assert_eq!(pdf_name_token("a\u{e9}"), "a#C3#A9");
+        // An ordinary subtype is untouched.
+        assert_eq!(pdf_name_token("pdf"), "pdf");
     }
 
     #[test]

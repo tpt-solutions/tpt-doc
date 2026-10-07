@@ -31,6 +31,12 @@ for violation in tpt_doc_ubl::validate(&invoice) {
 }
 ```
 
+## Limits
+
+`Invoice::from_xml_with_limits` takes explicit `tpt_doc_core::Limits`: nesting is
+refused past `max_xml_depth`. A UBL invoice is only a few levels deep, so
+anything deeper is corrupt or hostile.
+
 ## Standards
 
 | Standard | Coverage |

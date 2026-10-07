@@ -4,12 +4,13 @@
 //! decoded (inflate + unfilter) and re-deflated into a raw RGB stream
 //! (`/FlateDecode`) so no PNG-specific filters leak into the PDF.
 
-use std::io::{Read, Write as _};
+use std::io::Write as _;
 
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use tpt_doc_core::DocError;
+use tpt_doc_core::Limits;
 
 /// The stream filter of an embedded image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,8 @@ pub struct Image {
     pub data: Vec<u8>,
     /// How `data` is compressed.
     pub filter: ImageFilter,
+    /// The colour space the samples are in.
+    pub color_space: ColorSpace,
 }
 
 impl Image {
@@ -46,25 +49,31 @@ impl Image {
         if bytes.first() != Some(&0xFF) || bytes.get(1) != Some(&0xD8) {
             return Err(DocError::invalid_format("not a JPEG stream (bad SOI)"));
         }
-        let (width, height) = parse_jpeg_dimensions(&bytes)
+        let (width, height, components) = parse_jpeg_frame(&bytes)
             .ok_or_else(|| DocError::invalid_format("no JPEG SOF marker found"))?;
+        // Declaring a grayscale or CMYK JPEG as `/DeviceRGB` renders the wrong
+        // colours, so the component count decides the colour space.
+        let color_space = ColorSpace::from_jpeg_components(components).ok_or_else(|| {
+            DocError::invalid_format(format!("unsupported JPEG component count {components}"))
+        })?;
         Ok(Self {
             width,
             height,
             data: bytes,
             filter: ImageFilter::DctDecode,
+            color_space,
         })
     }
 
     /// Decode a PNG image into a raw RGB stream.
-///
-/// Supports non-interlaced 8-bit images: grayscale, RGB, palette, and
-/// RGBA. The decoded samples are re-deflated for a `/FlateDecode`
-/// `/XObject`.
-///
-/// # Errors
-/// Returns [`DocError`] if the bytes are not a supported PNG stream.
-pub fn from_png(bytes: &[u8]) -> Result<Self, DocError> {
+    ///
+    /// Supports non-interlaced 8-bit images: grayscale, RGB, palette, and
+    /// RGBA. The decoded samples are re-deflated for a `/FlateDecode`
+    /// `/XObject`.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if the bytes are not a supported PNG stream.
+    pub fn from_png(bytes: &[u8]) -> Result<Self, DocError> {
         const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
         if bytes.len() < 8 || bytes[..8] != SIGNATURE {
             return Err(DocError::invalid_format("not a PNG stream (bad signature)"));
@@ -95,7 +104,12 @@ pub fn from_png(bytes: &[u8]) -> Result<Self, DocError> {
             // Verify the CRC over the chunk type and data. A mismatch means
             // the file is corrupt or was not a PNG to begin with, and decoding
             // it would silently produce a wrong image.
-            let declared = u32::from_be_bytes([chunk[8 + len], chunk[9 + len], chunk[10 + len], chunk[11 + len]]);
+            let declared = u32::from_be_bytes([
+                chunk[8 + len],
+                chunk[9 + len],
+                chunk[10 + len],
+                chunk[11 + len],
+            ]);
             let actual = png_crc32(&chunk[4..8 + len]);
             if declared != actual {
                 return Err(DocError::invalid_format(format!(
@@ -135,16 +149,16 @@ pub fn from_png(bytes: &[u8]) -> Result<Self, DocError> {
             return Err(DocError::invalid_format("PNG has no IDAT data"));
         }
 
-        let mut raw = Vec::new();
-        ZlibDecoder::new(idat.as_slice())
-            .read_to_end(&mut raw)
-            .map_err(|e| DocError::invalid_format(format!("PNG IDAT decompression failed: {e}")))?;
+        // The IDAT stream is compressed, so its decompressed size is declared by
+        // the input rather than chosen here. Bound the inflate so a small PNG
+        // cannot expand into gigabytes before the pixel count is checked.
+        let raw = Limits::default().read_to_end(&mut ZlibDecoder::new(idat.as_slice()))?;
 
         let stride = width as usize * channels;
         let filtered = unfilter(&raw, height as usize, stride, channels)?;
         #[allow(clippy::cast_possible_truncation)] // dimensions come from 32-bit PNG fields
         let (w, h) = (width as usize, height as usize);
-        let rgb = to_rgb(&filtered, w, h, channels, &palette);
+        let rgb = to_rgb(&filtered, w, h, channels, &palette)?;
 
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
         encoder
@@ -158,6 +172,8 @@ pub fn from_png(bytes: &[u8]) -> Result<Self, DocError> {
             height,
             data,
             filter: ImageFilter::FlateDecode,
+            // `to_rgb` normalises every supported PNG colour type to RGB.
+            color_space: ColorSpace::Rgb,
         })
     }
 }
@@ -216,9 +232,7 @@ fn parse_ihdr(data: &[u8]) -> Result<(u32, u32, u8), DocError> {
         ));
     }
     if data[11] != 0 {
-        return Err(DocError::invalid_format(
-            "unsupported PNG filter method",
-        ));
+        return Err(DocError::invalid_format("unsupported PNG filter method"));
     }
     if data[12] != 0 {
         return Err(DocError::invalid_format(
@@ -306,22 +320,36 @@ fn to_rgb(
     height: usize,
     channels: usize,
     palette: &[[u8; 3]],
-) -> Vec<u8> {
+) -> Result<Vec<u8>, DocError> {
     // Palette images carry their index in the single sample channel.
     if channels == 1 && !palette.is_empty() {
         let mut indexed = Vec::with_capacity(width * height * 3);
         for i in 0..width * height {
             let index = usize::from(samples.get(i).copied().unwrap_or(0));
-            let entry = palette.get(index).copied().unwrap_or([0, 0, 0]);
+            // An index past the end of PLTE is a corrupt image. Substituting
+            // black would silently render the wrong pixels, so it is reported.
+            let entry = palette.get(index).copied().ok_or_else(|| {
+                DocError::invalid_format(format!(
+                    "PNG palette index {index} is out of range for a {}-entry palette",
+                    palette.len()
+                ))
+            })?;
             indexed.extend_from_slice(&entry);
         }
-        return indexed;
+        return Ok(indexed);
     }
     let mut rgb = Vec::with_capacity(width * height * 3);
     for i in 0..width * height {
         if channels == 1 {
             let g = samples.get(i).copied().unwrap_or(0);
             rgb.extend_from_slice(&[g, g, g]);
+        } else if channels == 4 {
+            // RGBA: the PDF colour space here is `/DeviceRGB`, which has no
+            // alpha channel, so only the colour components are emitted. The
+            // alpha byte is deliberately discarded rather than being folded
+            // into the colour.
+            let pixel = samples.get(i * 4..i * 4 + 3).unwrap_or(&[0; 3]);
+            rgb.extend_from_slice(pixel);
         } else {
             let pixel = samples
                 .get(i * channels..i * channels + 3)
@@ -329,11 +357,47 @@ fn to_rgb(
             rgb.extend_from_slice(pixel);
         }
     }
-    rgb
+    Ok(rgb)
 }
 
-/// Walk JPEG markers to the SOF frame header for width/height.
-fn parse_jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+/// The colour space declared by an image `XObject` dictionary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorSpace {
+    /// One sample per pixel (`/DeviceGray`).
+    Gray,
+    /// Three samples per pixel (`/DeviceRGB`).
+    Rgb,
+    /// Four samples per pixel (`/DeviceCMYK`).
+    Cmyk,
+}
+
+impl ColorSpace {
+    /// The PDF name written into `/ColorSpace`.
+    #[must_use]
+    pub(crate) fn pdf_name(self) -> &'static str {
+        match self {
+            Self::Gray => "/DeviceGray",
+            Self::Rgb => "/DeviceRGB",
+            Self::Cmyk => "/DeviceCMYK",
+        }
+    }
+
+    /// Map a JPEG component count to a colour space.
+    ///
+    /// Component counts other than 1, 3, and 4 are not representable by the
+    /// device colour spaces, so they are rejected rather than mislabelled.
+    fn from_jpeg_components(components: u8) -> Option<Self> {
+        match components {
+            1 => Some(Self::Gray),
+            3 => Some(Self::Rgb),
+            4 => Some(Self::Cmyk),
+            _ => None,
+        }
+    }
+}
+
+/// Walk JPEG markers to the SOF frame header for width, height, and components.
+fn parse_jpeg_frame(bytes: &[u8]) -> Option<(u32, u32, u8)> {
     let mut i = 2usize;
     while i + 4 <= bytes.len() {
         if bytes[i] != 0xFF {
@@ -361,7 +425,11 @@ fn parse_jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
                         let lo = u32::from(bytes.get(offset + 1).copied().unwrap_or(0));
                         hi << 8 | lo
                     };
-                    return Some((dim(i + 7), dim(i + 5)));
+                    // SOF layout: length(2) precision(1) height(2) width(2)
+                    // components(1). The component count decides the colour
+                    // space, so it is read here rather than assumed to be RGB.
+                    let components = bytes.get(i + 9).copied().unwrap_or(0);
+                    return Some((dim(i + 7), dim(i + 5), components));
                 }
                 i += 2 + seg_len;
             }
@@ -410,116 +478,145 @@ mod tests {
     }
 
     /// Build a PNG with the given IHDR payload, so malformed headers can be
-/// exercised without hand-assembling every chunk.
-fn png_with_ihdr(ihdr: &[u8]) -> Vec<u8> {
-    let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-    png.extend_from_slice(&u32::try_from(ihdr.len()).unwrap_or(u32::MAX).to_be_bytes());
-    png.extend_from_slice(b"IHDR");
-    png.extend_from_slice(ihdr);
-    let mut crc_input = b"IHDR".to_vec();
-    crc_input.extend_from_slice(ihdr);
-    png.extend_from_slice(&png_crc32(&crc_input).to_be_bytes());
-    png
-}
+    /// exercised without hand-assembling every chunk.
+    fn png_with_ihdr(ihdr: &[u8]) -> Vec<u8> {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&u32::try_from(ihdr.len()).unwrap_or(u32::MAX).to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(ihdr);
+        let mut crc_input = b"IHDR".to_vec();
+        crc_input.extend_from_slice(ihdr);
+        png.extend_from_slice(&png_crc32(&crc_input).to_be_bytes());
+        png
+    }
 
-#[test]
-fn short_ihdr_is_rejected_without_panicking() {
-    // Regression: the parser checked `len() < 10` then read `data[12]`, which
-    // is an out-of-bounds panic for a 10-, 11-, or 12-byte IHDR.
-    for len in 0..13 {
-        let png = png_with_ihdr(&vec![0u8; len]);
-        let result = Image::from_png(&png);
+    #[test]
+    fn short_ihdr_is_rejected_without_panicking() {
+        // Regression: the parser checked `len() < 10` then read `data[12]`, which
+        // is an out-of-bounds panic for a 10-, 11-, or 12-byte IHDR.
+        for len in 0..13 {
+            let png = png_with_ihdr(&vec![0u8; len]);
+            let result = Image::from_png(&png);
+            assert!(
+                result.is_err(),
+                "a {len}-byte IHDR must be rejected, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_declared_dimensions_are_rejected() {
+        // A 30000x30000 PNG is tiny on the wire but ~2.7 GB decoded.
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&30_000u32.to_be_bytes());
+        ihdr.extend_from_slice(&30_000u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+        let png = png_with_ihdr(&ihdr);
+
+        let err = Image::from_png(&png).expect_err("oversized image must be rejected");
+        assert!(err.to_string().contains("too large"), "{err}");
+    }
+
+    #[test]
+    fn hostile_chunk_length_does_not_overflow() {
+        // A 0xFFFFFFFF length field must be reported as a truncated chunk, not
+        // wrap around when computing `8 + len + 4`.
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend_from_slice(&u32::MAX.to_be_bytes());
+        png.extend_from_slice(b"IDAT");
+        png.extend_from_slice(b"short");
+
+        let err = Image::from_png(&png).expect_err("must be rejected");
         assert!(
-            result.is_err(),
-            "a {len}-byte IHDR must be rejected, got {result:?}"
+            err.to_string().contains("truncated") || err.to_string().contains("overflows"),
+            "{err}"
         );
     }
-}
 
-#[test]
-fn oversized_declared_dimensions_are_rejected() {
-    // A 30000x30000 PNG is tiny on the wire but ~2.7 GB decoded.
-    let mut ihdr = Vec::new();
-    ihdr.extend_from_slice(&30_000u32.to_be_bytes());
-    ihdr.extend_from_slice(&30_000u32.to_be_bytes());
-    ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
-    let png = png_with_ihdr(&ihdr);
+    /// A chunk whose CRC does not match its contents must be rejected rather than
+    /// decoded into a silently wrong image.
+    #[test]
+    fn chunk_crc_mismatch_is_rejected() {
+        let mut ihdr = vec![0u8; 13];
+        ihdr[0..4].copy_from_slice(&1u32.to_be_bytes());
+        ihdr[4..8].copy_from_slice(&1u32.to_be_bytes());
+        ihdr[8] = 8;
+        ihdr[9] = 2;
+        let mut png = png_with_ihdr(&ihdr);
 
-    let err = Image::from_png(&png).expect_err("oversized image must be rejected");
-    assert!(err.to_string().contains("too large"), "{err}");
-}
+        // Corrupt one byte of the IHDR data, leaving the declared CRC stale.
+        let target = png.len() - 4 - 1;
+        png[target] ^= 0xFF;
 
-#[test]
-fn hostile_chunk_length_does_not_overflow() {
-    // A 0xFFFFFFFF length field must be reported as a truncated chunk, not
-    // wrap around when computing `8 + len + 4`.
-    let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-    png.extend_from_slice(&u32::MAX.to_be_bytes());
-    png.extend_from_slice(b"IDAT");
-    png.extend_from_slice(b"short");
+        let err = Image::from_png(&png).expect_err("bad CRC must be rejected");
+        assert!(err.to_string().contains("CRC"), "{err}");
+    }
 
-    let err = Image::from_png(&png).expect_err("must be rejected");
-    assert!(
-        err.to_string().contains("truncated") || err.to_string().contains("overflows"),
-        "{err}"
-    );
-}
+    /// The standard CRC-32/IEEE check value guards against a broken CRC table.
+    #[test]
+    fn png_crc_matches_the_reference_test_vector() {
+        assert_eq!(png_crc32(b"123456789"), 0xCBF4_3926);
+    }
 
-/// A chunk whose CRC does not match its contents must be rejected rather than
-/// decoded into a silently wrong image.
-#[test]
-fn chunk_crc_mismatch_is_rejected() {
-    let mut ihdr = vec![0u8; 13];
-    ihdr[0..4].copy_from_slice(&1u32.to_be_bytes());
-    ihdr[4..8].copy_from_slice(&1u32.to_be_bytes());
-    ihdr[8] = 8;
-    ihdr[9] = 2;
-    let mut png = png_with_ihdr(&ihdr);
+    #[test]
+    fn nonzero_compression_or_filter_method_is_rejected() {
+        let mut base = vec![0u8; 8];
+        base.extend_from_slice(&1u32.to_be_bytes());
+        base.extend_from_slice(&1u32.to_be_bytes());
+        base.extend_from_slice(&[8, 2, 0, 0, 0]);
 
-    // Corrupt one byte of the IHDR data, leaving the declared CRC stale.
-    let target = png.len() - 4 - 1;
-    png[target] ^= 0xFF;
+        let mut bad_compression = base.clone();
+        bad_compression[14] = 1; // compression method
+        assert!(Image::from_png(&png_with_ihdr(&bad_compression)).is_err());
 
-    let err = Image::from_png(&png).expect_err("bad CRC must be rejected");
-    assert!(err.to_string().contains("CRC"), "{err}");
-}
+        let mut bad_filter = base;
+        bad_filter[15] = 1; // filter method
+        assert!(Image::from_png(&png_with_ihdr(&bad_filter)).is_err());
+    }
 
-/// The standard CRC-32/IEEE check value guards against a broken CRC table.
-#[test]
-fn png_crc_matches_the_reference_test_vector() {
-    assert_eq!(png_crc32(b"123456789"), 0xCBF4_3926);
-}
+    #[test]
+    fn interlaced_image_is_rejected() {
+        let mut ihdr = vec![0u8; 13];
+        ihdr[0..4].copy_from_slice(&1u32.to_be_bytes());
+        ihdr[4..8].copy_from_slice(&1u32.to_be_bytes());
+        ihdr[8] = 8; // bit depth
+        ihdr[9] = 2; // colour type: truecolour
+        ihdr[12] = 1; // interlace
+        let err = Image::from_png(&png_with_ihdr(&ihdr)).expect_err("must be rejected");
+        assert!(err.to_string().contains("interlaced"), "{err}");
+    }
 
-#[test]
-fn nonzero_compression_or_filter_method_is_rejected() {
-    let mut base = vec![0u8; 8];
-    base.extend_from_slice(&1u32.to_be_bytes());
-    base.extend_from_slice(&1u32.to_be_bytes());
-    base.extend_from_slice(&[8, 2, 0, 0, 0]);
+    /// A palette index past the end of PLTE means a corrupt image. Rendering it as
+    /// black instead would silently show the wrong pixels.
+    #[test]
+    fn out_of_range_palette_index_is_rejected() {
+        let palette = vec![[1u8, 2, 3]];
+        // Index 5 with a single palette entry.
+        let err = to_rgb(&[5], 1, 1, 1, &palette).expect_err("index past PLTE must fail");
+        assert!(err.to_string().contains("out of range"), "{err}");
 
-    let mut bad_compression = base.clone();
-    bad_compression[14] = 1; // compression method
-    assert!(Image::from_png(&png_with_ihdr(&bad_compression)).is_err());
+        // The last valid index is accepted.
+        assert_eq!(
+            to_rgb(&[0], 1, 1, 1, &palette).expect("valid index"),
+            vec![1, 2, 3]
+        );
+    }
 
-    let mut bad_filter = base;
-    bad_filter[15] = 1; // filter method
-    assert!(Image::from_png(&png_with_ihdr(&bad_filter)).is_err());
-}
+    /// RGBA input is emitted as RGB: `/DeviceRGB` has no alpha, so the alpha byte
+    /// must be dropped rather than folded into the colour.
+    #[test]
+    fn rgba_alpha_byte_is_discarded() {
+        let rgba = [10u8, 20, 30, 0, 40, 50, 60, 128];
+        let rgb = to_rgb(&rgba, 2, 1, 4, &[]).expect("rgba");
+        assert_eq!(
+            rgb,
+            vec![10, 20, 30, 40, 50, 60],
+            "alpha must not shift the data"
+        );
+    }
 
-#[test]
-fn interlaced_image_is_rejected() {
-    let mut ihdr = vec![0u8; 13];
-    ihdr[0..4].copy_from_slice(&1u32.to_be_bytes());
-    ihdr[4..8].copy_from_slice(&1u32.to_be_bytes());
-    ihdr[8] = 8; // bit depth
-    ihdr[9] = 2; // colour type: truecolour
-    ihdr[12] = 1; // interlace
-    let err = Image::from_png(&png_with_ihdr(&ihdr)).expect_err("must be rejected");
-    assert!(err.to_string().contains("interlaced"), "{err}");
-}
-
-#[test]
-fn truncated_pixel_data_is_rejected() {
+    #[test]
+    fn truncated_pixel_data_is_rejected() {
         assert!(unfilter(&[0, 1, 2], 2, 4, 1).is_err());
     }
 }

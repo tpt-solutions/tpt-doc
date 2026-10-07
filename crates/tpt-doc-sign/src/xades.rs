@@ -19,13 +19,19 @@ use crate::pem::PrivateKey;
 /// default for RSA keys.
 ///
 /// # Errors
-/// Returns [`DocError`] if the XML is malformed or the signing operation fails.
+/// Returns [`DocError`] if the XML is malformed, the certificate does not
+/// belong to `key`, or the signing operation fails.
 pub fn sign(
     xml_bytes: &[u8],
     key: &PrivateKey,
     cert_der: &[u8],
     rng: &dyn SecureRandom,
 ) -> Result<Vec<u8>, DocError> {
+    // A key that is not the private half of the embedded certificate yields a
+    // `<ds:Signature>` that fails verification at the far end; catching it here
+    // names the actual mistake.
+    crate::pem::Certificate::from_der(cert_der)?.check_key_matches(key)?;
+
     let text = std::str::from_utf8(xml_bytes)
         .map_err(|_| DocError::invalid_format("XML is not valid UTF-8"))?;
     let trimmed = text.trim_end();

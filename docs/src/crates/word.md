@@ -22,6 +22,13 @@ doc.push_table(table);
 let bytes = DocxWriter::write(&doc)?;
 ```
 
+## Limits
+
+`DocxReader::extract_text_with_limits` takes explicit `tpt_doc_core::Limits`: the
+decompressed `word/document.xml` part is size-bounded, and nesting is refused
+past `max_xml_depth`. A document body is only a few elements deep, so a deeply
+nested part is corrupt or an attempt to make the parser recurse without bound.
+
 ## Package Parts
 
 | Part | Purpose |

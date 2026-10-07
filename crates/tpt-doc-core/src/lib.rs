@@ -22,6 +22,8 @@ extern crate alloc;
 pub mod buf;
 /// The unified [`DocError`] error type.
 pub mod error;
+/// Resource limits for parsing untrusted documents.
+pub mod limits;
 /// Shared reader/writer/validation traits.
 pub mod traits;
 /// XML character legality and entity escaping.
@@ -29,5 +31,6 @@ pub mod xml;
 
 pub use buf::BufSlice;
 pub use error::DocError;
+pub use limits::Limits;
 pub use traits::{DocReader, DocWriter, Validate, ValidationReport};
 pub use xml::{escape_xml_text, is_xml_char, validate_xml_chars};

@@ -156,7 +156,6 @@ fn exactly_max_elements_is_accepted() {
     assert_eq!(segments[0].elements().len(), 128);
 }
 
-
 #[test]
 fn parses_edifact_fixture_and_asserts_values() {
     let bytes = edifact_fixture();

@@ -11,12 +11,14 @@ pub mod der;
 /// `PAdES` PDF signature integration (`/ByteRange` incremental updates).
 pub mod pades;
 /// PEM decoding and the RSA [`pem::PrivateKey`](crate::pem::PrivateKey) handle.
+/// PEM decoding, the RSA [`pem::PrivateKey`](crate::pem::PrivateKey) handle,
+/// and [`pem::Certificate`](crate::pem::Certificate).
 pub mod pem;
 /// `XAdES` enveloped XML signatures (`rsa-sha256`).
 pub mod xades;
 
 pub use pades::sign;
-pub use pem::PrivateKey;
+pub use pem::{Certificate, PrivateKey};
 pub use xades::sign as sign_xml;
 
 #[cfg(test)]

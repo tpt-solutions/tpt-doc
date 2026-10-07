@@ -14,6 +14,46 @@ fn parse(bytes: &[u8]) -> Vec<tpt_doc_hl7v2::Segment<'_>> {
         .collect::<Result<Vec<_>, _>>()
         .expect("parse fixture")
 }
+/// The five MSH encoding characters must be printable and mutually distinct;
+/// otherwise the message cannot be tokenised unambiguously.
+#[test]
+fn degenerate_msh_delimiters_are_rejected() {
+    // MSH-3 equal to MSH-4 (component separator == repetition separator).
+    let duplicated = b"MSH|^~~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\r";
+    let result: Result<Vec<_>, _> = Hl7Parser::new(duplicated).collect();
+    let err = result.expect_err("repeated encoding character must be rejected");
+    assert!(err.to_string().contains("distinct"), "{err}");
+
+    // MSH-2 reusing the field separator.
+    let clash = b"MSH||~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\r";
+    assert!(
+        Hl7Parser::new(clash)
+            .collect::<Result<Vec<_>, _>>()
+            .is_err(),
+        "MSH-2 must not reuse MSH-1"
+    );
+}
+
+/// A non-printable encoding character cannot be tokenised. `\x01` is used
+/// rather than CR/LF so the segment is not split before MSH-2 is read.
+#[test]
+fn non_printable_msh_delimiter_is_rejected() {
+    let bad = b"MSH|^~\x01\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\r";
+    let result: Result<Vec<_>, _> = Hl7Parser::new(bad).collect();
+    let err = result.expect_err("non-printable delimiter must be rejected");
+    assert!(err.to_string().contains("printable"), "{err}");
+}
+
+/// The ordinary default delimiters must keep working.
+#[test]
+fn standard_delimiters_are_accepted() {
+    let message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\rPID|1";
+    let segments: Vec<_> = Hl7Parser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(segments[0].component(9, 1), Some("ADT"));
+}
+
 /// HL7 v2.x specifies CR (`\r`) as the segment terminator, but real-world
 /// senders emit CR-LF or bare LF. All three must parse identically.
 #[test]
@@ -34,10 +74,16 @@ fn crlf_and_lf_line_endings_parse_like_cr() {
             rebuilt.push(b'\n');
         }
     }
-    let from_crlf: Vec<_> = Hl7Parser::new(&rebuilt).collect::<Result<Vec<_>, _>>().unwrap();
+    let from_crlf: Vec<_> = Hl7Parser::new(&rebuilt)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     let crlf_tags: Vec<&str> = from_crlf.iter().map(|s| s.tag()).collect();
     assert_eq!(crlf_tags, vec!["MSH", "PID"]);
-    assert_eq!(from_crlf[1].field(3), Some("12345"), "field content must be clean");
+    assert_eq!(
+        from_crlf[1].field(3),
+        Some("12345"),
+        "field content must be clean"
+    );
 
     // Bare LF: replace each CR with LF, nothing else.
     let lf: Vec<u8> = cr
@@ -45,7 +91,10 @@ fn crlf_and_lf_line_endings_parse_like_cr() {
         .map(|b| if *b == b'\r' { b'\n' } else { *b })
         .collect();
     let from_lf: Vec<_> = Hl7Parser::new(&lf).collect::<Result<Vec<_>, _>>().unwrap();
-    assert_eq!(from_lf.iter().map(|s| s.tag()).collect::<Vec<_>>(), vec!["MSH", "PID"]);
+    assert_eq!(
+        from_lf.iter().map(|s| s.tag()).collect::<Vec<_>>(),
+        vec!["MSH", "PID"]
+    );
     assert_eq!(from_lf[1].field(3), Some("12345"));
 }
 
@@ -53,13 +102,13 @@ fn crlf_and_lf_line_endings_parse_like_cr() {
 #[test]
 fn crlf_does_not_produce_empty_segments() {
     let message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\r\nPID|1||12345\r\n";
-    let segments: Vec<_> = Hl7Parser::new(message).collect::<Result<Vec<_>, _>>().unwrap();
+    let segments: Vec<_> = Hl7Parser::new(message)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     assert_eq!(segments.len(), 2, "no empty segments for {segments:?}");
     assert_eq!(segments[1].tag(), "PID");
     assert_eq!(segments[1].field(1), Some("1"));
 }
-
-
 
 /// A long run of empty segments must not recurse per segment — that overflows
 /// the stack on untrusted input.

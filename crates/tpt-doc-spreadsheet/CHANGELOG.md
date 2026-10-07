@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cell containing a C0 control is rejected with the offending code point rather
   than producing a workbook Excel refuses to open.
 - Round-trip determinism tests plus `proptest` property tests.
+- `XlsxReader::with_limits` applying `tpt_doc_core::Limits`: ZIP entries cannot
+  inflate past `max_entry_bytes`, rows stop at `max_rows` with an error rather
+  than a silent truncation, and nesting stops at `max_xml_depth` in both the
+  worksheet and the shared strings table.
 
 ### Notes
 

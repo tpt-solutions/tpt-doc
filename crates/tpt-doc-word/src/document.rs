@@ -1,8 +1,9 @@
 use std::fmt::Write as _;
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
+use tpt_doc_core::Limits;
 use tpt_doc_core::escape_xml_text;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
@@ -442,24 +443,45 @@ impl DocxReader {
     /// Paragraphs are separated by `\n`; `w:tab` and `w:br` become `\t` and
     /// `\n`. Text in headers, footers, and non-body parts is not included.
     ///
+    /// Parsing is bounded by [`Limits`]: the decompressed part cannot exceed
+    /// `max_entry_bytes` and nesting cannot exceed `max_xml_depth`. See
+    /// [`DocxReader::extract_text_with_limits`] to change either.
+    ///
     /// # Errors
     /// Returns [`DocError`] if the bytes are not a readable `.docx` file.
     pub fn extract_text(bytes: &[u8]) -> Result<String, DocError> {
+        Self::extract_text_with_limits(bytes, Limits::default())
+    }
+
+    /// Extract plain text with explicit [`Limits`] applied while parsing.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if the bytes are not a readable `.docx` file, an
+    /// entry exceeds `limits.max_entry_bytes`, or the document nests deeper
+    /// than `limits.max_xml_depth`.
+    pub fn extract_text_with_limits(bytes: &[u8], limits: Limits) -> Result<String, DocError> {
         let cursor = std::io::Cursor::new(bytes);
         let mut archive = ZipArchive::new(cursor)
             .map_err(|e| DocError::invalid_format(format!("not a valid ZIP archive: {e}")))?;
         let mut document = archive
             .by_name("word/document.xml")
             .map_err(|_| DocError::invalid_format("missing ZIP entry `word/document.xml`"))?;
-        let mut xml = Vec::new();
-        document.read_to_end(&mut xml)?;
+        // Bound the decompressed size: a small archive can declare an entry
+        // that inflates to gigabytes. See `tpt_doc_core::Limits`.
+        let xml = limits.read_to_end(&mut document)?;
 
         let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
         let mut text = String::new();
         let mut capture = false;
+        let mut depth = 0usize;
         loop {
             match reader.read_event() {
                 Ok(Event::Start(start)) => {
+                    // A document body is only a few elements deep, so a deeply
+                    // nested part is either corrupt or an attempt to make the
+                    // parser recurse without bound.
+                    depth += 1;
+                    limits.check_xml_depth(depth)?;
                     if start.local_name().as_ref() == "t" {
                         capture = true;
                     }
@@ -480,11 +502,14 @@ impl DocxReader {
                 Ok(Event::GeneralRef(reference)) if capture => {
                     text.push_str(&resolve_ref(&reference)?);
                 }
-                Ok(Event::End(end)) => match end.local_name().as_ref() {
-                    "t" => capture = false,
-                    "p" => text.push('\n'),
-                    _ => {}
-                },
+                Ok(Event::End(end)) => {
+                    depth = depth.saturating_sub(1);
+                    match end.local_name().as_ref() {
+                        "t" => capture = false,
+                        "p" => text.push('\n'),
+                        _ => {}
+                    }
+                }
                 Ok(Event::Eof) => {
                     while text.ends_with('\n') {
                         text.pop();

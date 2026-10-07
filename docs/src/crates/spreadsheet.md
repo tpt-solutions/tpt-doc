@@ -19,6 +19,22 @@ for row in reader.rows() {
 }
 ```
 
+## Limits
+
+`XlsxReader::with_limits` takes explicit `tpt_doc_core::Limits`. A ZIP entry
+cannot inflate past `max_entry_bytes`, rows stop at `max_rows`, and XML nesting
+stops at `max_xml_depth` in both the worksheet and the shared strings table.
+Exceeding a limit is an error, not a silent stop, so the caller sees which row
+tripped the bound.
+
+```rust,ignore
+use tpt_doc_core::Limits;
+use tpt_doc_spreadsheet::xlsx::XlsxReader;
+
+let limits = Limits { max_rows: 100_000, ..Limits::default() };
+let mut reader = XlsxReader::with_limits(&bytes, limits)?;
+```
+
 ## Key Types
 
 - `XlsxReader` — streaming worksheet row iterator

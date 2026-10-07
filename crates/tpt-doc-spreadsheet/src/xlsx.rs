@@ -1,9 +1,10 @@
 use std::fmt::Write as _;
-use std::io::{Read, Write};
+use std::io::Write;
 
 use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
+use tpt_doc_core::Limits;
 use tpt_doc_core::escape_xml_text;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
@@ -49,9 +50,14 @@ impl Row {
 /// Only the first worksheet (`xl/worksheets/sheet1.xml`) is read; the shared
 /// strings table (`xl/sharedStrings.xml`) is parsed when present so that
 /// `t="s"` cells written by Excel and `LibreOffice` resolve correctly.
+///
+/// Parsing is bounded by [`Limits`]: a ZIP entry cannot inflate past
+/// `max_entry_bytes`, rows stop at `max_rows`, and XML nesting stops at
+/// `max_xml_depth`. See [`XlsxReader::with_limits`] to tighten or relax them.
 pub struct XlsxReader {
     sheet: Vec<u8>,
     shared_strings: Vec<String>,
+    limits: Limits,
 }
 
 impl XlsxReader {
@@ -61,24 +67,41 @@ impl XlsxReader {
     /// Returns [`DocError`] if the bytes are not a valid `.xlsx` (OOXML) file
     /// or the first worksheet entry is missing.
     pub fn new(bytes: &[u8]) -> Result<Self, DocError> {
+        Self::with_limits(bytes, Limits::default())
+    }
+
+    /// Create a reader with explicit [`Limits`] applied while parsing.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if the bytes are not a valid `.xlsx` (OOXML) file,
+    /// an entry exceeds `limits.max_entry_bytes`, or the first worksheet entry
+    /// is missing.
+    pub fn with_limits(bytes: &[u8], limits: Limits) -> Result<Self, DocError> {
         let cursor = std::io::Cursor::new(bytes);
         let mut archive = ZipArchive::new(cursor)
             .map_err(|e| DocError::invalid_format(format!("not a valid ZIP archive: {e}")))?;
-        let shared_strings = read_shared_strings(&mut archive)?;
-        let sheet = read_entry(&mut archive, "xl/worksheets/sheet1.xml")?;
+        let shared_strings = read_shared_strings(&mut archive, &limits)?;
+        let sheet = read_entry(&mut archive, "xl/worksheets/sheet1.xml", &limits)?;
         Ok(Self {
             sheet,
             shared_strings,
+            limits,
         })
     }
 
     /// Iterate over worksheet rows.
+    ///
+    /// Yields an error rather than stopping silently once `limits.max_rows`
+    /// rows have been produced.
     pub fn rows(&mut self) -> impl Iterator<Item = Result<Row, DocError>> + '_ {
         RowsIter {
             reader: quick_xml::Reader::from_reader(self.sheet.as_slice()),
             shared: &self.shared_strings,
+            limits: self.limits,
             row_index: 1,
             next_row_index: 1,
+            rows_yielded: 0,
+            depth: 0,
             row_cells: Vec::new(),
             cell: CellState::default(),
             capture: Capture::None,
@@ -186,10 +209,15 @@ fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> Result<String, DocError> 
 struct RowsIter<'r> {
     reader: quick_xml::Reader<&'r [u8]>,
     shared: &'r [String],
+    limits: Limits,
     /// 1-based index of the row currently being parsed.
     row_index: u32,
     /// Default index for the next row lacking an explicit `r` attribute.
     next_row_index: u32,
+    /// Rows produced so far, checked against `limits.max_rows`.
+    rows_yielded: usize,
+    /// Currently open XML elements, checked against `limits.max_xml_depth`.
+    depth: usize,
     row_cells: Vec<Cell>,
     cell: CellState,
     capture: Capture,
@@ -226,6 +254,25 @@ impl RowsIter<'_> {
         }
         self.row_cells.push(cell);
     }
+
+    /// Route decoded text into whichever cell buffer the open element feeds.
+    fn push_text(&mut self, chunk: &str) {
+        match self.capture {
+            Capture::Value => self.cell.value.push_str(chunk),
+            Capture::InlineText => self.cell.inline.push_str(chunk),
+            Capture::None => {}
+        }
+    }
+
+    /// Emit the finished row, refusing to go past `limits.max_rows`.
+    fn finish_row(&mut self) -> Result<Row, DocError> {
+        self.rows_yielded += 1;
+        self.limits.check_rows(self.rows_yielded)?;
+        Ok(Row {
+            index: self.row_index,
+            cells: std::mem::take(&mut self.row_cells),
+        })
+    }
 }
 
 impl Iterator for RowsIter<'_> {
@@ -244,80 +291,80 @@ impl Iterator for RowsIter<'_> {
                 }
             };
             match event {
-                Event::Start(start) => match start.name().as_ref() {
-                    "row" => {
-                        let explicit = Self::attr(&start, "r").and_then(|r| r.parse::<u32>().ok());
-                        self.row_index = explicit.unwrap_or(self.next_row_index);
-                        self.next_row_index = self.row_index.saturating_add(1);
+                Event::Start(start) => {
+                    // Every open element counts towards the depth bound: a
+                    // worksheet of `<a><a><a>…` is cheap to write and would
+                    // otherwise be walked without limit.
+                    self.depth += 1;
+                    if let Err(e) = self.limits.check_xml_depth(self.depth) {
+                        self.done = true;
+                        return Some(Err(e));
                     }
-                    "c" => {
-                        self.cell = CellState {
-                            kind: match Self::attr(&start, "t").as_deref() {
-                                Some("s") => CellKind::Shared,
-                                Some("inlineStr") => CellKind::Inline,
-                                Some("b") => CellKind::Boolean,
-                                Some("e") => CellKind::Error,
-                                Some("str") => CellKind::FormulaString,
-                                _ => CellKind::Number,
-                            },
-                            column: Self::attr(&start, "r").as_deref().and_then(column_index),
-                            ..CellState::default()
-                        };
+                    match start.name().as_ref() {
+                        "row" => {
+                            let explicit =
+                                Self::attr(&start, "r").and_then(|r| r.parse::<u32>().ok());
+                            self.row_index = explicit.unwrap_or(self.next_row_index);
+                            self.next_row_index = self.row_index.saturating_add(1);
+                        }
+                        "c" => {
+                            self.cell = CellState {
+                                kind: match Self::attr(&start, "t").as_deref() {
+                                    Some("s") => CellKind::Shared,
+                                    Some("inlineStr") => CellKind::Inline,
+                                    Some("b") => CellKind::Boolean,
+                                    Some("e") => CellKind::Error,
+                                    Some("str") => CellKind::FormulaString,
+                                    _ => CellKind::Number,
+                                },
+                                column: Self::attr(&start, "r").as_deref().and_then(column_index),
+                                ..CellState::default()
+                            };
+                        }
+                        "v" => self.capture = Capture::Value,
+                        "is" => self.capture = Capture::InlineText,
+                        _ => {}
                     }
-                    "v" => self.capture = Capture::Value,
-                    "is" => self.capture = Capture::InlineText,
-                    _ => {}
-                },
+                }
                 Event::Empty(start) => {
                     if start.name().as_ref() == "c" {
                         // A bare <c/> with no children is an empty cell.
                         self.finish_cell();
                     }
                 }
-                Event::Text(text) => {
-                    if self.capture != Capture::None {
-                        match quick_xml::escape::unescape(&text) {
-                            Ok(chunk) => match self.capture {
-                                Capture::Value => self.cell.value.push_str(&chunk),
-                                Capture::InlineText => self.cell.inline.push_str(&chunk),
-                                Capture::None => {}
-                            },
-                            Err(e) => {
-                                self.done = true;
-                                return Some(Err(DocError::invalid_format(format!(
-                                    "invalid XML entities in cell text: {e}"
-                                ))));
-                            }
-                        }
+                Event::Text(text) => match quick_xml::escape::unescape(&text) {
+                    Ok(chunk) => self.push_text(&chunk),
+                    Err(e) => {
+                        self.done = true;
+                        return Some(Err(DocError::invalid_format(format!(
+                            "invalid XML entities in cell text: {e}"
+                        ))));
                     }
-                }
-                Event::GeneralRef(reference) => {
-                    if self.capture != Capture::None {
-                        match resolve_ref(&reference) {
-                            Ok(chunk) => match self.capture {
-                                Capture::Value => self.cell.value.push_str(&chunk),
-                                Capture::InlineText => self.cell.inline.push_str(&chunk),
-                                Capture::None => {}
-                            },
+                },
+                Event::GeneralRef(reference) => match resolve_ref(&reference) {
+                    Ok(chunk) => self.push_text(&chunk),
+                    Err(e) => {
+                        self.done = true;
+                        return Some(Err(e));
+                    }
+                },
+                Event::End(end) => {
+                    self.depth = self.depth.saturating_sub(1);
+                    match end.name().as_ref() {
+                        "v" | "is" => self.capture = Capture::None,
+                        "c" => self.finish_cell(),
+                        // The row limit is checked before the row is produced,
+                        // so the caller sees an error rather than a silent stop.
+                        "row" => match self.finish_row() {
+                            Ok(row) => return Some(Ok(row)),
                             Err(e) => {
                                 self.done = true;
                                 return Some(Err(e));
                             }
-                        }
+                        },
+                        _ => {}
                     }
                 }
-                Event::End(end) => match end.name().as_ref() {
-                    "v" | "is" => self.capture = Capture::None,
-                    "c" => self.finish_cell(),
-                    "row" => {
-                        let cells = std::mem::take(&mut self.row_cells);
-                        return Some(Ok(Row {
-                            index: self.row_index,
-                            cells,
-                        }));
-                    }
-                    _ => {}
-                },
                 Event::Eof => {
                     self.done = true;
                     return None;
@@ -328,16 +375,20 @@ impl Iterator for RowsIter<'_> {
     }
 }
 
+/// Read a ZIP entry, bounding the decompressed size.
+///
+/// A small archive can declare an entry that inflates to gigabytes, so the
+/// read stops at [`Limits::max_entry_bytes`] rather than trusting the input.
+/// See [`tpt_doc_core::Limits`].
 fn read_entry(
     archive: &mut ZipArchive<std::io::Cursor<&[u8]>>,
     name: &str,
+    limits: &Limits,
 ) -> Result<Vec<u8>, DocError> {
     let mut file = archive
         .by_name(name)
         .map_err(|_| DocError::invalid_format(format!("missing ZIP entry `{name}`")))?;
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
+    limits.read_to_end(&mut file)
 }
 
 /// Parse the shared strings table into an ordered `Vec<String>`.
@@ -346,26 +397,40 @@ fn read_entry(
 /// how Excel presents them as one string.
 fn read_shared_strings(
     archive: &mut ZipArchive<std::io::Cursor<&[u8]>>,
+    limits: &Limits,
 ) -> Result<Vec<String>, DocError> {
     if archive.by_name("xl/sharedStrings.xml").is_err() {
         return Ok(Vec::new());
     }
-    let bytes = read_entry(archive, "xl/sharedStrings.xml")?;
+    let bytes = read_entry(archive, "xl/sharedStrings.xml", limits)?;
     let mut reader = quick_xml::Reader::from_reader(bytes.as_slice());
     let mut strings = Vec::new();
     let mut current = String::new();
     let mut in_si = false;
     let mut in_t = false;
+    let mut depth = 0usize;
     loop {
         match reader.read_event() {
-            Ok(Event::Start(start)) => match start.name().as_ref() {
-                "si" => {
-                    in_si = true;
-                    current.clear();
+            Ok(Event::Start(start)) => {
+                depth += 1;
+                limits.check_xml_depth(depth)?;
+                match start.name().as_ref() {
+                    "si" => {
+                        in_si = true;
+                        current.clear();
+                    }
+                    "t" if in_si => in_t = true,
+                    _ => {}
                 }
-                "t" if in_si => in_t = true,
-                _ => {}
-            },
+            }
+            Ok(Event::End(end)) => {
+                depth = depth.saturating_sub(1);
+                match end.name().as_ref() {
+                    "t" => in_t = false,
+                    "si" => strings.push(std::mem::take(&mut current)),
+                    _ => {}
+                }
+            }
             Ok(Event::Text(text)) if in_t => match quick_xml::escape::unescape(&text) {
                 Ok(chunk) => current.push_str(&chunk),
                 Err(e) => {
@@ -377,11 +442,6 @@ fn read_shared_strings(
             Ok(Event::GeneralRef(reference)) if in_t => {
                 current.push_str(&resolve_ref(&reference)?);
             }
-            Ok(Event::End(end)) => match end.name().as_ref() {
-                "t" => in_t = false,
-                "si" => strings.push(std::mem::take(&mut current)),
-                _ => {}
-            },
             Ok(Event::Eof) => return Ok(strings),
             Ok(_) => {}
             Err(e) => return Err(DocError::invalid_format(format!("XML error: {e}"))),
@@ -594,6 +654,7 @@ mod tests {
         let mut reader = XlsxReader {
             sheet: xml.as_bytes().to_vec(),
             shared_strings: Vec::new(),
+            limits: Limits::default(),
         };
         reader
             .rows()
@@ -746,6 +807,7 @@ mod tests {
         let mut reader = XlsxReader {
             sheet: xml.as_bytes().to_vec(),
             shared_strings: Vec::new(),
+            limits: Limits::default(),
         };
         let rows: Vec<_> = reader.rows().collect::<Result<Vec<_>, _>>().expect("parse");
         assert_eq!(rows.len(), 1);
@@ -771,6 +833,7 @@ mod tests {
         let mut reader = XlsxReader {
             sheet: xml.as_bytes().to_vec(),
             shared_strings: vec!["from shared".to_owned()],
+            limits: Limits::default(),
         };
         let rows: Vec<_> = reader.rows().collect::<Result<Vec<_>, _>>().expect("parse");
         assert_eq!(
@@ -797,6 +860,7 @@ mod tests {
         let mut reader = XlsxReader {
             sheet: xml.as_bytes().to_vec(),
             shared_strings: Vec::new(),
+            limits: Limits::default(),
         };
         let rows: Vec<_> = reader.rows().collect::<Result<Vec<_>, _>>().expect("parse");
         assert_eq!(rows[0].index, 1);
@@ -808,6 +872,7 @@ mod tests {
         let mut reader = XlsxReader {
             sheet: b"<sheetData><row".to_vec(),
             shared_strings: Vec::new(),
+            limits: Limits::default(),
         };
         assert!(reader.rows().any(|r| r.is_err()));
     }

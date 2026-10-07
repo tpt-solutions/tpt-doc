@@ -20,6 +20,12 @@ let json = patient.to_json()?;
 let xml  = patient.to_xml()?;
 ```
 
+## Limits
+
+`Patient::from_xml_with_limits` and `Observation::from_xml_with_limits` take
+explicit `tpt_doc_core::Limits`: nesting is refused past `max_xml_depth`. A
+resource is a handful of elements deep, so deeper nesting is corrupt or hostile.
+
 ## Supported Resources (Phase 2)
 
 - `Patient`

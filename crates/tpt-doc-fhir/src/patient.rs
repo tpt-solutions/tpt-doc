@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tpt_doc_core::Limits;
 
 use crate::{FhirValidationError, HumanName, Identifier};
 
@@ -123,9 +124,22 @@ impl Patient {
     /// # Errors
     /// Returns an error if the bytes are not a valid FHIR Patient XML document.
     pub fn from_xml(bytes: &[u8]) -> Result<Self, FhirValidationError> {
+        Self::from_xml_with_limits(bytes, Limits::default())
+    }
+
+    /// Deserialize from FHIR XML bytes with explicit [`Limits`] applied.
+    ///
+    /// Nesting is bounded by `limits.max_xml_depth`: a `Patient` resource is a
+    /// handful of levels deep, so deeper nesting is corrupt or hostile.
+    ///
+    /// # Errors
+    /// Returns an error if the bytes are not a valid FHIR Patient XML document
+    /// or exceed `limits.max_xml_depth`.
+    pub fn from_xml_with_limits(bytes: &[u8], limits: Limits) -> Result<Self, FhirValidationError> {
         use quick_xml::events::Event;
 
         let mut reader = quick_xml::Reader::from_reader(bytes);
+        let mut depth = 0usize;
         let mut id = String::new();
         let mut names: Vec<HumanName> = Vec::new();
         let mut identifiers: Vec<Identifier> = Vec::new();
@@ -145,6 +159,10 @@ impl Patient {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(start)) => {
+                    depth += 1;
+                    limits
+                        .check_xml_depth(depth)
+                        .map_err(|e| FhirValidationError::new("/f:Patient", e.to_string()))?;
                     if crate::xml::is_element(&start, "name") {
                         current_name = HumanName {
                             family: None,
@@ -180,26 +198,29 @@ impl Patient {
                         _ => {}
                     }
                 }
-                Ok(Event::End(end)) => match end.local_name().as_ref() {
-                    "name" => names.push(std::mem::replace(
-                        &mut current_name,
-                        HumanName {
-                            family: None,
-                            given: Vec::new(),
-                        },
-                    )),
-                    "identifier" => {
-                        in_identifier = false;
-                        identifiers.push(std::mem::replace(
-                            &mut current_identifier,
-                            Identifier {
-                                system: None,
-                                value: String::new(),
+                Ok(Event::End(end)) => {
+                    depth = depth.saturating_sub(1);
+                    match end.local_name().as_ref() {
+                        "name" => names.push(std::mem::replace(
+                            &mut current_name,
+                            HumanName {
+                                family: None,
+                                given: Vec::new(),
                             },
-                        ));
+                        )),
+                        "identifier" => {
+                            in_identifier = false;
+                            identifiers.push(std::mem::replace(
+                                &mut current_identifier,
+                                Identifier {
+                                    system: None,
+                                    value: String::new(),
+                                },
+                            ));
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 Ok(Event::Eof) => break,
                 Ok(_) => {}
                 Err(e) => return Err(err(format!("XML error: {e}"))),

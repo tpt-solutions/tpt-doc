@@ -5,6 +5,28 @@ All notable changes to `tpt-doc-pdf` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `image::ColorSpace` on `Image`, and the JPEG SOF component count is read
+  during `from_jpeg` so a grayscale or CMYK JPEG is declared `/DeviceGray` or
+  `/DeviceCMYK` instead of being mislabelled `/DeviceRGB`. Component counts no
+  device colour space covers are rejected.
+- `Document::write` rejects a page whose font or image id was never embedded,
+  and refuses non-finite coordinates rather than writing `NaN`/`inf` into a
+  content stream.
+
+### Fixed
+
+- An attachment MIME subtype is escaped as a PDF name token: every delimiter
+  (`/ ( ) < > [ ] { } % #` and whitespace) is escaped, not just `/`, so an
+  untrusted subtype cannot inject dictionary syntax.
+- A PNG palette index past the end of `PLTE` is reported instead of being
+  rendered as black, which silently showed the wrong pixels.
+- The PNG IDAT inflate is bounded by `tpt_doc_core::Limits`, so a small file
+  cannot expand into gigabytes before the pixel count is checked.
+
 ## [0.1.0] - 2026-02-10
 
 ### Added

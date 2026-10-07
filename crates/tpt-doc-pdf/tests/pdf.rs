@@ -463,6 +463,56 @@ fn deterministic_structure_snapshot() {
     insta::assert_snapshot!(skeleton);
 }
 
+/// A grayscale JPEG declared as `/DeviceRGB` renders the wrong colours, so
+/// the SOF component count decides the colour space written into the XObject.
+#[test]
+fn jpeg_colour_space_follows_the_component_count() {
+    use tpt_doc_pdf::image::ColorSpace;
+
+    // SOF0 with components=1.
+    let gray = Image::from_jpeg(vec![
+        0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x02, 0x00, 0x03, 0x01,
+    ])
+    .expect("grayscale jpeg");
+    assert_eq!(gray.color_space, ColorSpace::Gray);
+
+    // SOF0 with components=4 (CMYK).
+    let cmyk = Image::from_jpeg(vec![
+        0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0E, 0x08, 0x00, 0x02, 0x00, 0x03, 0x04,
+    ])
+    .expect("cmyk jpeg");
+    assert_eq!(cmyk.color_space, ColorSpace::Cmyk);
+
+    // A component count no device colour space covers must be rejected rather
+    // than silently labelled RGB.
+    let odd = Image::from_jpeg(vec![
+        0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x02, 0x00, 0x03, 0x02,
+    ])
+    .expect_err("2-component JPEG must be rejected");
+    assert!(odd.to_string().contains("component count"), "{odd}");
+}
+
+/// The colour space ends up in the XObject dictionary, not just on the struct.
+#[test]
+fn image_xobject_declares_the_matching_colour_space() {
+    let gray = Image::from_jpeg(vec![
+        0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x02, 0x00, 0x03, 0x01,
+    ])
+    .expect("grayscale jpeg");
+    let mut doc = Document::new();
+    let id = doc.embed_image(gray);
+    let mut page = Page::a4();
+    page.image(id, 10.0, 10.0, 50.0, 50.0);
+    doc.add_page(page);
+
+    let bytes = doc.write().expect("write");
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("/ColorSpace /DeviceGray"),
+        "expected /DeviceGray"
+    );
+}
+
 #[test]
 fn image_data_is_embedded_verbatim_or_transcoded() {
     let mut doc = Document::new();

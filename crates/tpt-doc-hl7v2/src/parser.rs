@@ -51,6 +51,11 @@ impl<'a> Hl7Parser<'a> {
             return Err(DocError::invalid_format("MSH segment too short"));
         }
         let field = seg_bytes[3];
+        if !field.is_ascii_graphic() {
+            return Err(DocError::invalid_format(format!(
+                "MSH-1 field separator {field:?} is not printable"
+            )));
+        }
         let enc = seg_bytes
             .get(4..)
             .and_then(|rest| {
@@ -63,13 +68,43 @@ impl<'a> Hl7Parser<'a> {
                 "MSH-2 must contain four encoding characters",
             ));
         }
-        Ok(Delimiters {
+        let delims = Delimiters {
             field,
             component: enc[0],
             repeat: enc[1],
             escape: enc[2],
             subcomponent: enc[3],
-        })
+        };
+        // The five encoding characters must be distinguishable, or the message
+        // cannot be tokenised unambiguously.
+        let all = [
+            delims.field,
+            delims.component,
+            delims.repeat,
+            delims.escape,
+            delims.subcomponent,
+        ];
+        for (index, byte) in all.iter().enumerate() {
+            if !byte.is_ascii_graphic() {
+                return Err(DocError::invalid_format(format!(
+                    "MSH-2 encoding character {} ({byte:?}) is not printable",
+                    index + 2
+                )));
+            }
+        }
+        for i in 0..all.len() {
+            for j in (i + 1)..all.len() {
+                if all[i] == all[j] {
+                    return Err(DocError::invalid_format(format!(
+                        "MSH encoding characters must be distinct, but MSH-{} and MSH-{} are both {:?}",
+                        i + 1,
+                        j + 1,
+                        all[i]
+                    )));
+                }
+            }
+        }
+        Ok(delims)
     }
 
     /// Parse the next segment from the input.
@@ -90,11 +125,12 @@ impl<'a> Hl7Parser<'a> {
             let end = memchr::memchr2(b'\r', b'\n', &input[start..])
                 .map_or(input.len(), |rel| start + rel);
             let seg_bytes = &input[start..end];
-            self.pos = if end < input.len() && input[end] == b'\r' && input.get(end + 1) == Some(&b'\n') {
-                end + 2
-            } else {
-                end + 1
-            };
+            self.pos =
+                if end < input.len() && input[end] == b'\r' && input.get(end + 1) == Some(&b'\n') {
+                    end + 2
+                } else {
+                    end + 1
+                };
 
             let Ok(seg_str) = core::str::from_utf8(seg_bytes) else {
                 return Some(Err(DocError::invalid_format(

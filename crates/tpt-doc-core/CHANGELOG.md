@@ -5,6 +5,16 @@ All notable changes to `tpt-doc-core` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `limits` module with `Limits` (`max_entry_bytes`, `max_rows`,
+  `max_xml_depth`), a bounded `read_to_end` replacement for
+  `Read::read_to_end`, and `check_rows` / `check_xml_depth` guards. Applied to
+  `.xlsx` and `.docx` ZIP entries, the PNG IDAT inflate, and the XML parsers in
+  spreadsheet, word, ubl, and fhir.
+
 ## [0.1.0] - 2026-02-10
 
 ### Added

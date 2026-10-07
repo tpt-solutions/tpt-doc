@@ -90,8 +90,12 @@ pub fn sign(
     for byte in &cms {
         let _ = write!(hex, "{byte:02x}");
     }
+    // Search only the appended update, never the original PDF body: a long run
+    // of '0' bytes in the original (an uncompressed stream, say) would otherwise
+    // be matched first and the hex spliced in over it, corrupting the file.
     let zeros = "0".repeat(placeholder_len);
-    let zeros_at = find_bytes(&update, zeros.as_bytes())
+    let zeros_at = find_bytes(&update[base..], zeros.as_bytes())
+        .map(|rel| base + rel)
         .ok_or_else(|| DocError::invalid_format("internal error: placeholder not found"))?;
     update.splice(
         zeros_at..zeros_at + placeholder_len,

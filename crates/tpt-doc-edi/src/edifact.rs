@@ -37,7 +37,10 @@ impl<'a> Segment<'a> {
     /// release sequence generally produces a new string.
     #[must_use]
     pub fn elements_released(&self) -> Vec<std::borrow::Cow<'a, str>> {
-        self.elements.iter().map(|e| unescape(e, self.release)).collect()
+        self.elements
+            .iter()
+            .map(|e| unescape(e, self.release))
+            .collect()
     }
 }
 
@@ -93,7 +96,13 @@ fn split_elements(
         // A separator released by the preceding character is literal data, so
         // this is not a boundary; leave the pair in the slice.
         let released = segment[..index].ends_with(release)
-            && segment[..index].chars().rev().take_while(|c| *c == release).count() % 2 == 1;
+            && segment[..index]
+                .chars()
+                .rev()
+                .take_while(|c| *c == release)
+                .count()
+                % 2
+                == 1;
         if released {
             continue;
         }
@@ -183,8 +192,7 @@ impl<'a> EdifactParser<'a> {
             // Find the segment terminator. A trailing segment with no terminator
             // is a truncated message, which must be reported rather than
             // silently discarding the data after the last `'`.
-            let Some(end) = memchr::memchr(self.seg_term, &self.input[start..])
-            else {
+            let Some(end) = memchr::memchr(self.seg_term, &self.input[start..]) else {
                 let remainder = self.input.len() - start;
                 // Exhaust the parser: without advancing, a caller that keeps
                 // iterating would receive this same error forever.

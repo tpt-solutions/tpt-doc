@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tpt_doc_core::Limits` with bounded `read_to_end`, `check_rows`, and
+  `check_xml_depth`; enforced in the `.xlsx` and `.docx` ZIP readers, the
+  PNG IDAT inflate, and the XML parsers in spreadsheet, word, ubl, and fhir
+- `XlsxReader::with_limits`, `DocxReader::extract_text_with_limits`,
+  `Invoice::from_xml_with_limits`, `Patient::from_xml_with_limits`, and
+  `Observation::from_xml_with_limits`
+- `tpt_doc_pdf::image::ColorSpace` on `Image`, so JPEG component counts map
+  to `/DeviceGray`, `/DeviceRGB`, or `/DeviceCMYK`
 - Initial workspace scaffold with 7 crate skeletons
 - GitHub Actions CI (fmt, clippy, deny, test, coverage)
 - mdBook documentation skeleton
@@ -52,6 +60,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   XML into a PDF
 
 ### Fixed
+- `tpt-doc-pdf`: dangling font and image ids in `Page` operations are rejected
+  before serialization instead of naming a nonexistent object number; non-finite
+  coordinates are refused rather than written as `NaN`/`inf` into a content
+  stream; attachment MIME subtypes are escaped as PDF name tokens (all
+  delimiters, not just `/`); a PNG palette index past the end of `PLTE` is an
+  error rather than black
 - `quick-xml` 0.42 (RUSTSEC-2026-0194, RUSTSEC-2026-0195)
 - `ttf-parser` dependency removed (RUSTSEC-2026-0192); TrueType
   subsetting will use `skrifa`

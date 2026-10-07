@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tpt_doc_core::Limits;
 
 use crate::FhirValidationError;
 use crate::types::{CodeableConcept, Quantity, Reference};
@@ -172,13 +173,33 @@ impl Observation {
     /// Returns an error if the bytes are not a valid FHIR Observation XML
     /// document or a mandatory element is missing.
     pub fn from_xml(bytes: &[u8]) -> Result<Self, FhirValidationError> {
+        Self::from_xml_with_limits(bytes, Limits::default())
+    }
+
+    /// Deserialize from FHIR XML bytes with explicit [`Limits`] applied.
+    ///
+    /// Nesting is bounded by `limits.max_xml_depth`.
+    ///
+    /// # Errors
+    /// Returns an error if the bytes are not a valid FHIR Observation XML
+    /// document, a mandatory element is missing, or the document nests deeper
+    /// than `limits.max_xml_depth`.
+    pub fn from_xml_with_limits(bytes: &[u8], limits: Limits) -> Result<Self, FhirValidationError> {
         let mut reader = quick_xml::Reader::from_reader(bytes);
         let mut fields = ObservationFields::default();
+        let mut depth = 0usize;
         loop {
             match reader.read_event() {
-                Ok(quick_xml::events::Event::Start(start)) => fields.enter(&start)?,
+                Ok(quick_xml::events::Event::Start(start)) => {
+                    depth += 1;
+                    limits
+                        .check_xml_depth(depth)
+                        .map_err(|e| FhirValidationError::new("/f:Observation", e.to_string()))?;
+                    fields.enter(&start)?;
+                }
                 Ok(quick_xml::events::Event::Empty(start)) => fields.apply_empty(&start)?,
                 Ok(quick_xml::events::Event::End(end)) => {
+                    depth = depth.saturating_sub(1);
                     fields.exit(end.local_name().as_ref());
                 }
                 Ok(quick_xml::events::Event::Eof) => break,

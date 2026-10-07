@@ -77,8 +77,9 @@ fn non_printable_repetition_separator_is_rejected() {
 #[test]
 fn unterminated_trailing_segment_is_an_error() {
     let truncated = format!("{}ST*850*0001", String::from_utf8_lossy(VALID_ISA));
-    let result: Result<Vec<_>, _> =
-        X12Parser::new(truncated.as_bytes()).expect("valid ISA").collect();
+    let result: Result<Vec<_>, _> = X12Parser::new(truncated.as_bytes())
+        .expect("valid ISA")
+        .collect();
     let err = result.expect_err("missing terminator must be reported");
     assert!(
         err.to_string().contains("unterminated"),

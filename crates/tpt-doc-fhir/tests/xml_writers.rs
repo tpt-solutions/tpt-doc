@@ -1,6 +1,7 @@
 //! XML writer validation: a control character cannot be represented in XML,
 //! so serialization must fail rather than emit malformed FHIR XML.
 
+use tpt_doc_core::Limits;
 use tpt_doc_fhir::prelude::*;
 
 #[test]
@@ -42,4 +43,49 @@ fn tab_newline_and_return_are_accepted_in_xml() {
         .build();
 
     assert!(patient.to_xml().is_ok(), "these controls are legal XML");
+}
+
+/// A `Patient` resource is a handful of elements deep, so nesting past
+/// `max_xml_depth` is refused rather than walked.
+#[test]
+fn deeply_nested_patient_xml_is_rejected() {
+    let mut xml = String::from("<Patient>");
+    for _ in 0..64 {
+        xml.push_str("<a>");
+    }
+    for _ in 0..64 {
+        xml.push_str("</a>");
+    }
+    xml.push_str("</Patient>");
+
+    let limits = Limits {
+        max_xml_depth: 8,
+        ..Limits::default()
+    };
+    let err = Patient::from_xml_with_limits(xml.as_bytes(), limits)
+        .expect_err("deep nesting must be rejected");
+    assert!(err.to_string().contains("8 level limit"), "{err}");
+}
+
+/// The same bound applies to `Observation`. Nesting uses `<coding>`, which the
+/// resource model accepts, so the depth check is what stops the parse rather
+/// than the unexpected-element check.
+#[test]
+fn deeply_nested_observation_xml_is_rejected() {
+    let mut xml = String::from("<Observation><code>");
+    for _ in 0..64 {
+        xml.push_str("<coding>");
+    }
+    for _ in 0..64 {
+        xml.push_str("</coding>");
+    }
+    xml.push_str("</code></Observation>");
+
+    let limits = Limits {
+        max_xml_depth: 8,
+        ..Limits::default()
+    };
+    let err = Observation::from_xml_with_limits(xml.as_bytes(), limits)
+        .expect_err("deep nesting must be rejected");
+    assert!(err.to_string().contains("8 level limit"), "{err}");
 }

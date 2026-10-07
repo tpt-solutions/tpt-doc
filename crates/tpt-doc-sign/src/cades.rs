@@ -34,6 +34,12 @@ pub fn sign_detached(
     cert_der: &[u8],
     rng: &dyn SecureRandom,
 ) -> Result<Vec<u8>, DocError> {
+    // A key that is not the private half of the embedded certificate still
+    // produces a well-formed CMS whose signature no verifier can attribute to
+    // that certificate. Failing here is far cheaper to diagnose than a rejected
+    // document downstream.
+    crate::pem::Certificate::from_der(cert_der)?.check_key_matches(key)?;
+
     let (_, cert) = parse_x509_certificate(cert_der)
         .map_err(|e| DocError::invalid_format(format!("signer certificate unparsable: {e}")))?;
     let issuer_der = issuer_tlv(cert_der)?;
@@ -41,7 +47,7 @@ pub fn sign_detached(
     let cert_digest = digest::digest(&digest::SHA256, cert_der);
 
     let message_digest = digest::digest(&digest::SHA256, data);
-    let signed_attrs = build_signed_attrs(message_digest.as_ref(), cert_digest.as_ref());
+    let signed_attrs = build_signed_attrs(message_digest.as_ref(), cert_digest.as_ref())?;
 
     // The signature covers the DER encoding of SignedAttrs re-tagged as a
     // SET OF (0x31), per RFC 5652 §11.4.
@@ -51,9 +57,9 @@ pub fn sign_detached(
     let signer_info_body = [
         der::integer(&[1]),
         issuer_and_serial(&issuer_der, &serial),
-        digest_algorithm_sha256(),
+        digest_algorithm_sha256()?,
         der::context_constructed(0, &signed_attrs),
-        signature_algorithm_pss(),
+        signature_algorithm_pss()?,
         der::octet_string(&signature),
     ]
     .concat();
@@ -61,8 +67,8 @@ pub fn sign_detached(
 
     let signed_data_body = [
         der::integer(&[1]),
-        der::set_of(&digest_algorithm_sha256()),
-        encapsulated_content_info_detached(),
+        der::set_of(&digest_algorithm_sha256()?),
+        encapsulated_content_info_detached()?,
         der::context_constructed(0, cert_der),
         der::set_of(&signer_info),
     ]
@@ -70,7 +76,7 @@ pub fn sign_detached(
     let signed_data = der::sequence(&signed_data_body);
     Ok(der::sequence(
         &[
-            der::oid(oid::SIGNED_DATA),
+            der::oid(oid::SIGNED_DATA)?,
             der::context_constructed(0, &signed_data),
         ]
         .concat(),
@@ -128,51 +134,47 @@ fn read_tlv(data: &[u8], pos: usize) -> Option<(u8, usize, usize)> {
     Some((tag, content_len, header_len))
 }
 
-fn digest_algorithm_sha256() -> Vec<u8> {
-    der::sequence(&der::oid(oid::SHA256))
+fn digest_algorithm_sha256() -> Result<Vec<u8>, DocError> {
+    Ok(der::sequence(&der::oid(oid::SHA256)?))
 }
 
-fn encapsulated_content_info_detached() -> Vec<u8> {
-    der::sequence(&der::oid(oid::DATA))
+fn encapsulated_content_info_detached() -> Result<Vec<u8>, DocError> {
+    Ok(der::sequence(&der::oid(oid::DATA)?))
 }
 
 /// RSA-PSS `SignatureAlgorithmIdentifier`: SHA-256 hash, MGF1-SHA-256,
 /// 32-byte salt (RFC 4055 §3.1). The hash `AlgorithmIdentifier`s carry the
 /// conventional NULL parameter, matching what OpenSSL and Windows emit.
-fn signature_algorithm_pss() -> Vec<u8> {
-    let sha256_with_null = der::sequence(&[der::oid(oid::SHA256), der::null()].concat());
+fn signature_algorithm_pss() -> Result<Vec<u8>, DocError> {
+    let sha256_with_null = der::sequence(&[der::oid(oid::SHA256)?, der::null()].concat());
     let hash_alg = der::context_constructed(0, &sha256_with_null);
-    let mgf1 = der::sequence(&[der::oid(oid::MGF1), sha256_with_null].concat());
+    let mgf1 = der::sequence(&[der::oid(oid::MGF1)?, sha256_with_null].concat());
     let mask_gen = der::context_constructed(1, &mgf1);
     let salt = der::context_constructed(2, &der::integer(&[32]));
     // RSA_PSS_PARAMS ::= SEQUENCE { hashAlg [0], maskGen [1], saltLength [2] }
     let params = der::sequence(&[hash_alg, mask_gen, salt].concat());
-    der::sequence(&[der::oid(oid::RSA_PSS), params].concat())
+    Ok(der::sequence(&[der::oid(oid::RSA_PSS)?, params].concat()))
 }
 
 /// Build the concatenated DER encoding of the signed attributes:
 /// `contentType`, `messageDigest`, and `signingCertificateV2` (`ESSCertIDv2`
 /// with SHA-256). The encodings are DER-sorted as `SET OF` requires.
-fn build_signed_attrs(message_digest: &[u8], cert_digest: &[u8]) -> Vec<u8> {
+fn build_signed_attrs(message_digest: &[u8], cert_digest: &[u8]) -> Result<Vec<u8>, DocError> {
     let attr =
         |oid_der: Vec<u8>, value: Vec<u8>| der::sequence(&[oid_der, der::set_of(&value)].concat());
-    let content_type = attr(der::oid(oid::CONTENT_TYPE), der::oid(oid::DATA));
+    let content_type = attr(der::oid(oid::CONTENT_TYPE)?, der::oid(oid::DATA)?);
     let message_digest_attr = attr(
-        der::oid(oid::MESSAGE_DIGEST),
+        der::oid(oid::MESSAGE_DIGEST)?,
         der::octet_string(message_digest),
     );
-    // ESSCertIDv2 ::= SEQUENCE { hashAlgorithm AlgorithmIdentifier,
-    //                            certHash OCTET STRING,
-    //                            issuerSerial [0] IssuerSerial OPTIONAL }
-    let ess_cert_id = der::sequence(
-        &[
-            der::sequence(&der::oid(oid::SHA256)),
-            der::octet_string(cert_digest),
-        ]
-        .concat(),
-    );
+    // ESSCertIDv2 ::= SEQUENCE { hashAlgorithm AlgorithmIdentifier DEFAULT
+    //                           sha256, certHash OCTET STRING,
+    //                           issuerSerial [0] IssuerSerial OPTIONAL }
+    // `hashAlgorithm` is DEFAULT sha256, so it is omitted (B3); a present
+    // default is a DER violation that strict validators reject.
+    let ess_cert_id = der::sequence(&der::octet_string(cert_digest));
     let signing_certificate_v2 = attr(
-        der::oid(oid::SIGNING_CERTIFICATE_V2),
+        der::oid(oid::SIGNING_CERTIFICATE_V2)?,
         der::sequence(&[ess_cert_id].concat()),
     );
 
@@ -182,7 +184,7 @@ fn build_signed_attrs(message_digest: &[u8], cert_digest: &[u8]) -> Vec<u8> {
     for attr in &attrs {
         encoded.extend_from_slice(attr);
     }
-    encoded
+    Ok(encoded)
 }
 
 /// Wrap the concatenated attribute TLVs in a real SET OF (0x31) tag —

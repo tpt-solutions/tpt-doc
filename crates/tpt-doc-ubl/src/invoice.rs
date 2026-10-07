@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tpt_doc_core::DocError;
+use tpt_doc_core::Limits;
 use tpt_doc_core::escape_xml_text;
 
 use crate::types::{
@@ -230,6 +231,18 @@ impl Invoice {
     /// # Errors
     /// Returns [`DocError`] if the XML is not a valid UBL invoice document.
     pub fn from_xml(bytes: &[u8]) -> Result<Self, DocError> {
+        Self::from_xml_with_limits(bytes, Limits::default())
+    }
+
+    /// Parse a UBL 2.1 invoice with explicit [`Limits`] applied.
+    ///
+    /// Nesting is bounded by `limits.max_xml_depth`; a UBL document is only a
+    /// few levels deep, so anything deeper is refused rather than walked.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if the XML is not a valid UBL invoice document or
+    /// exceeds `limits.max_xml_depth`.
+    pub fn from_xml_with_limits(bytes: &[u8], limits: Limits) -> Result<Self, DocError> {
         use quick_xml::events::Event;
 
         let mut reader = quick_xml::Reader::from_reader(bytes);
@@ -260,6 +273,7 @@ impl Invoice {
                         }
                     }
                     path.push(name);
+                    limits.check_xml_depth(path.len())?;
                     // A new element starts a fresh text buffer.
                     pending_text.clear();
                 }

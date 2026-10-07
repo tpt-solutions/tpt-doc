@@ -1,6 +1,7 @@
 //! Integration tests: parse the PEPPOL BIS fixture, validate it, and prove
 //! serialize → parse round-trips.
 
+use tpt_doc_core::Limits;
 use tpt_doc_ubl::prelude::*;
 
 fn fixture_bytes() -> Vec<u8> {
@@ -129,6 +130,36 @@ mod proptests {
             prop_assert_eq!(restored, invoice);
         }
     }
+}
+
+/// A UBL invoice is only a few elements deep, so nesting past
+/// `max_xml_depth` is refused rather than walked.
+#[test]
+fn deeply_nested_xml_is_rejected() {
+    let mut xml = String::from("<Invoice>");
+    for _ in 0..64 {
+        xml.push_str("<a>");
+    }
+    for _ in 0..64 {
+        xml.push_str("</a>");
+    }
+    xml.push_str("</Invoice>");
+
+    let limits = Limits {
+        max_xml_depth: 8,
+        ..Limits::default()
+    };
+    let err = Invoice::from_xml_with_limits(xml.as_bytes(), limits)
+        .expect_err("deep nesting must be rejected");
+    assert!(err.to_string().contains("8 level limit"), "{err}");
+}
+
+/// The default limit leaves a real PEPPOL invoice untouched.
+#[test]
+fn default_limits_allow_the_fixture() {
+    let invoice =
+        Invoice::from_xml_with_limits(&fixture_bytes(), Limits::default()).expect("fixture parses");
+    assert_eq!(invoice.currency, "NZD");
 }
 
 #[cfg(feature = "facturx")]

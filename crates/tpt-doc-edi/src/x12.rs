@@ -111,8 +111,7 @@ impl<'a> Iterator for X12Parser<'a> {
             // A trailing segment with no terminator means the interchange was
             // truncated in transit. Reporting it beats silently discarding
             // whatever followed the last terminator.
-            let Some(end) = memchr::memchr(self.seg_term, &self.input[start..])
-            else {
+            let Some(end) = memchr::memchr(self.seg_term, &self.input[start..]) else {
                 let remainder = self.input.len() - start;
                 // Exhaust the parser so a caller that keeps iterating does not
                 // receive this error forever.
