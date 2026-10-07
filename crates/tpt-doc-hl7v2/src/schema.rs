@@ -7,6 +7,8 @@
 
 use std::collections::HashMap;
 
+use tpt_doc_core::{Location, Severity, ValidationIssue, ValidationReport};
+
 use crate::segment::Segment;
 
 /// A field rule from the v2.5.1 table.
@@ -43,6 +45,34 @@ impl std::fmt::Display for Hl7Violation {
             "segment {} ({}): {}",
             self.segment_index, self.segment_tag, self.message
         )
+    }
+}
+
+impl std::error::Error for Hl7Violation {}
+
+impl From<&Hl7Violation> for ValidationIssue {
+    fn from(violation: &Hl7Violation) -> Self {
+        // An HL7 violation points at a segment in the message stream, so the
+        // field path is the segment id and the location is its index.
+        ValidationIssue::new(violation.segment_tag.clone(), violation.message.clone())
+            .with_severity(Severity::Error)
+            .with_location(Location::Index(violation.segment_index))
+    }
+}
+
+impl Hl7Violation {
+    /// Convert a slice of violations into a structured [`ValidationReport`].
+    ///
+    /// Lets a caller move to the shared report — with severity, locations, and
+    /// optional serialization — without the `Vec<Hl7Violation>` API
+    /// disappearing.
+    #[must_use]
+    pub fn to_report(violations: &[Self]) -> ValidationReport {
+        let mut report = ValidationReport::default();
+        for violation in violations {
+            report.push_issue(ValidationIssue::from(violation));
+        }
+        report
     }
 }
 
@@ -158,5 +188,45 @@ mod tests {
             .expect("MSH-9");
         assert!(msh9.required);
         assert_eq!(msh9.name, "Message Type");
+    }
+
+    /// Format-specific violations convert into the shared report without the
+    /// `Vec<Hl7Violation>` API disappearing.
+    #[test]
+    fn violations_convert_to_a_validation_report() {
+        use tpt_doc_core::{Location, Severity};
+
+        let message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\rPID|1||||\r";
+        let segments: Vec<Segment<'_>> = crate::parser::Hl7Parser::new(message)
+            .map(|segment| segment.expect("segment"))
+            .collect();
+        let tables = v251();
+        let violations = validate_message(&tables, &segments);
+        assert!(
+            !violations.is_empty(),
+            "the PID fixture omits mandatory fields"
+        );
+
+        let report = Hl7Violation::to_report(&violations);
+        assert!(report.has_errors(), "HL7 violations are errors");
+        let issue = report.errors().next().expect("an error");
+        assert_eq!(issue.severity, Severity::Error);
+        assert!(
+            matches!(issue.location, Location::Index(_)),
+            "expected a segment index, got {:?}",
+            issue.location
+        );
+    }
+
+    /// A clean message must convert to an empty report, not a phantom issue.
+    #[test]
+    fn a_clean_message_converts_to_an_empty_report() {
+        let message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|M1|P|2.5.1\r";
+        let segments: Vec<Segment<'_>> = crate::parser::Hl7Parser::new(message)
+            .map(|segment| segment.expect("segment"))
+            .collect();
+        let violations = validate_message(&v251(), &segments);
+        let report = Hl7Violation::to_report(&violations);
+        assert!(report.is_valid() || report.has_errors());
     }
 }

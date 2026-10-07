@@ -1,6 +1,6 @@
 use std::fmt;
 
-use tpt_doc_core::ValidationReport;
+use tpt_doc_core::{Location, Severity, ValidationIssue, ValidationReport};
 
 use crate::encounter::{Encounter, EncounterStatus};
 use crate::observation::{Observation, ObservationStatus};
@@ -32,6 +32,31 @@ impl fmt::Display for FhirValidationError {
 
 impl std::error::Error for FhirValidationError {}
 
+impl From<&FhirValidationError> for ValidationIssue {
+    fn from(error: &FhirValidationError) -> Self {
+        ValidationIssue::new(error.field_path.clone(), error.message.clone())
+            .with_severity(Severity::Error)
+            // A FHIR resource is a tree, so the pointer-style field path is
+            // the natural location.
+            .with_location(Location::Path(error.field_path.clone()))
+    }
+}
+
+impl FhirValidationError {
+    /// Convert a slice of errors into a structured [`ValidationReport`].
+    ///
+    /// Lets a caller move to the shared report without the existing
+    /// `Result<_, FhirValidationError>` API disappearing.
+    #[must_use]
+    pub fn to_report(errors: &[Self]) -> ValidationReport {
+        let mut report = ValidationReport::default();
+        for error in errors {
+            report.push_issue(ValidationIssue::from(error));
+        }
+        report
+    }
+}
+
 impl From<tpt_doc_core::DocError> for FhirValidationError {
     /// Wrap a core [`DocError`](tpt_doc_core::DocError) — most often the
     /// rejection of a character that XML 1.0 forbids — as a FHIR error.
@@ -62,12 +87,16 @@ pub fn validate_observation(observation: &Observation) -> ValidationReport {
     );
     if verified && observation.value_quantity.is_none() && observation.effective_date_time.is_none()
     {
-        report.push(
-            "/valueQuantity",
-            format!(
-                "a `{}` observation must have a value or an effective time",
-                observation.status.code()
-            ),
+        // FHIR R5 invariant `obs-7`.
+        report.push_issue(
+            ValidationIssue::new(
+                "/valueQuantity",
+                format!(
+                    "a `{}` observation must have a value or an effective time",
+                    observation.status.code()
+                ),
+            )
+            .with_rule("obs-7"),
         );
     }
     report
@@ -94,9 +123,12 @@ pub fn validate_encounter(encounter: &Encounter) -> ValidationReport {
                 time::Date::parse(end, &time::format_description::well_known::Iso8601::DEFAULT),
             ) && end_date < start_date
             {
-                report.push(
-                    "/period/end",
-                    format!("period end `{end}` is before period start `{start}`"),
+                report.push_issue(
+                    ValidationIssue::new(
+                        "/period/end",
+                        format!("period end `{end}` is before period start `{start}`"),
+                    )
+                    .with_rule("enc-3"),
                 );
             }
         }
@@ -104,9 +136,13 @@ pub fn validate_encounter(encounter: &Encounter) -> ValidationReport {
     if encounter.status == EncounterStatus::Finished
         && encounter.period.as_ref().is_none_or(|p| p.end.is_none())
     {
-        report.push(
-            "/period/end",
-            "a `finished` encounter must have a period end",
+        // FHIR R5 invariant `enc-1`.
+        report.push_issue(
+            ValidationIssue::new(
+                "/period/end",
+                "a `finished` encounter must have a period end",
+            )
+            .with_rule("enc-1"),
         );
     }
     report
@@ -139,6 +175,49 @@ mod tests {
         let report = validate_observation(&invalid);
         assert!(!report.is_valid());
         assert_eq!(report.issues()[0].field_path, "/valueQuantity");
+    }
+
+    #[test]
+    fn issues_carry_the_fhir_invariant_id() {
+        // A caller should be able to map a finding back to the specification
+        // without parsing the message text.
+        let observation = Observation::builder()
+            .status(ObservationStatus::Final)
+            .code(CodeableConcept::text("weight"))
+            .build();
+        let report = validate_observation(&observation);
+        assert_eq!(report.issues()[0].rule_id, "obs-7");
+        assert!(report.has_errors(), "a missing value is an error");
+
+        let encounter = Encounter::builder()
+            .status(EncounterStatus::Finished)
+            .class(Coding::new(
+                "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+                "AMB",
+            ))
+            .build();
+        let report = validate_encounter(&encounter);
+        assert_eq!(report.issues()[0].rule_id, "enc-1");
+    }
+
+    /// The error type converts too, keeping the pointer path as the location,
+    /// so the existing `Result<_, FhirValidationError>` callers have a
+    /// migration path to the shared report.
+    #[test]
+    fn fhir_errors_convert_to_a_validation_report() {
+        use tpt_doc_core::{Location, Severity};
+
+        let errors = [FhirValidationError::new("/period/end", "must not be empty")];
+        let report = FhirValidationError::to_report(&errors);
+        assert!(report.has_errors());
+        let issue = report.errors().next().expect("an error");
+        assert_eq!(issue.severity, Severity::Error);
+        assert_eq!(issue.field_path, "/period/end");
+        assert_eq!(
+            issue.location,
+            Location::Path("/period/end".to_owned()),
+            "a FHIR finding points at a tree path"
+        );
     }
 
     #[test]

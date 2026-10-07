@@ -32,5 +32,7 @@ pub mod xml;
 pub use buf::BufSlice;
 pub use error::DocError;
 pub use limits::Limits;
-pub use traits::{DocReader, DocWriter, Validate, ValidationReport};
+pub use traits::{
+    DocReader, DocWriter, Location, Severity, Validate, ValidationIssue, ValidationReport,
+};
 pub use xml::{escape_xml_text, is_xml_char, validate_xml_chars};

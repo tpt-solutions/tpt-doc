@@ -82,6 +82,8 @@ struct Frame {
 enum FrameKind {
     Root,
     Paragraph,
+    /// A `<div>`, which holds block children.
+    Container,
     Heading(u8),
     Table,
     Row,
@@ -153,13 +155,36 @@ impl Builder {
         if self.chars[self.pos] == '<' {
             let mut raw = String::new();
             self.pos += 1;
+            // A `>` inside a quoted attribute value does not close the tag —
+            // `style="font-weight: bold > 700"` is legal HTML. Scanning to the
+            // first `>` leaked the remainder of the attribute into the text.
+            let mut quote: Option<char> = None;
+            let mut closed = false;
             while let Some(&c) = self.chars.get(self.pos) {
-                if c == '>' {
+                if let Some(open) = quote {
+                    if c == open {
+                        quote = None;
+                    }
+                } else if is_quote(c) {
+                    quote = Some(c);
+                } else if c == '>' {
                     self.pos += 1;
+                    closed = true;
                     break;
                 }
+                // Anything else — including a `>` inside a quoted value — is
+                // ordinary tag content.
                 raw.push(c);
                 self.pos += 1;
+            }
+            if !closed {
+                // Unterminated tag: drop the partial markup rather than
+                // rendering it as text.
+                return Some(Token::Tag {
+                    name: String::new(),
+                    closing: false,
+                    style: ComputedStyle::default(),
+                });
             }
             return Some(Self::lex_tag(&raw));
         }
@@ -219,16 +244,33 @@ impl Builder {
                 self.flush_text();
                 self.italic = self.italic.saturating_sub(1);
             }
-            (false, "p" | "div") => {
+            (false, "p") => {
                 self.flush_text();
+                // HTML closes an open paragraph when a block element starts,
+                // so `<p>one<p>two` is two paragraphs, not one.
+                self.close_named(|kind| matches!(kind, FrameKind::Paragraph));
                 self.open(FrameKind::Paragraph, style);
             }
-            (true, "p" | "div") => {
+            (true, "p") => {
                 self.flush_text();
                 self.close_named(|kind| matches!(kind, FrameKind::Paragraph));
             }
+            // `<div>` is a container, not a paragraph: it holds any mix of
+            // block children. Treating it as a paragraph collected them into an
+            // inline child list the renderer never walked, so nested content
+            // silently disappeared.
+            (false, "div") => {
+                self.flush_text();
+                self.open(FrameKind::Container, style);
+            }
+            (true, "div") => {
+                self.flush_text();
+                self.close_named(|kind| matches!(kind, FrameKind::Container));
+            }
             (false, "h1" | "h2" | "h3" | "h4" | "h5" | "h6") => {
                 self.flush_text();
+                // A heading also implicitly closes an open paragraph.
+                self.close_named(|kind| matches!(kind, FrameKind::Paragraph));
                 let level = name[1..].parse::<u8>().unwrap_or(6);
                 self.open(FrameKind::Heading(level), style);
             }
@@ -305,6 +347,15 @@ impl Builder {
                 children: frame.children,
                 style: frame.style,
             }),
+            // A container contributes only its children; the `<div>` itself is
+            // transparent in the layout engine.
+            FrameKind::Container => {
+                let mut children = frame.children;
+                if let Some(parent) = self.stack.last_mut() {
+                    parent.children.append(&mut children);
+                }
+                return;
+            }
             FrameKind::Heading(level) => HtmlNode::Block(BlockElement::Heading {
                 level,
                 children: frame.children,

@@ -1,0 +1,19 @@
+[package]
+name = "tpt-doc-convert"
+description = "Format converters for tpt-doc: HL7 v2 ADT/ORU messages to FHIR R5 bundles"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["hl7", "fhir", "converter", "healthcare", "interoperability"]
+categories = ["encoding", "parser-implementations"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-convert"
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+tpt-doc-hl7v2 = { workspace = true }
+tpt-doc-fhir = { workspace = true }

@@ -24,6 +24,12 @@ No shelling out to Python or Java. No C-FFI. No bloated dependency trees. 100% M
 | [`tpt-doc-word`](crates/tpt-doc-word) | Pure-Rust `.docx` (OOXML Word) generation and parsing | [![docs.rs](https://docs.rs/tpt-doc-word/badge.svg)](https://docs.rs/tpt-doc-word) | [CHANGELOG](crates/tpt-doc-word/CHANGELOG.md) |
 | [`tpt-doc-ubl`](crates/tpt-doc-ubl) | UBL 2.1/2.3 and PEPPOL BIS Billing 3.0 e-invoicing | [![docs.rs](https://docs.rs/tpt-doc-ubl/badge.svg)](https://docs.rs/tpt-doc-ubl) | [CHANGELOG](crates/tpt-doc-ubl/CHANGELOG.md) |
 
+Prefer a single dependency? [`tpt-doc`](crates/tpt-doc) re-exports every crate behind per-format feature flags (`features = ["fhir", "hl7v2"]`, or `full`).
+
+Converters: [`tpt-doc-convert`](crates/tpt-doc-convert) turns HL7 v2 ADT/ORU messages into FHIR R5 bundles.
+
+Command line: [`tpt`](crates/tpt-doc-cli) sniffs, inspects, validates and renders documents (`tpt validate invoice.xml --json`).
+
 Each crate ships its own README with compiled examples and its own CHANGELOG.
 
 ## Quick Start

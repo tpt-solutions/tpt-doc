@@ -96,6 +96,18 @@ impl Certificate {
         &self.public_key_algorithm
     }
 
+    /// The start of the validity window, in seconds since the Unix epoch.
+    #[must_use]
+    pub fn not_before(&self) -> i64 {
+        self.not_before
+    }
+
+    /// The end of the validity window, in seconds since the Unix epoch.
+    #[must_use]
+    pub fn not_after(&self) -> i64 {
+        self.not_after
+    }
+
     /// Check the certificate is valid at `unix_seconds`.
     ///
     /// Both bounds are inclusive, matching RFC 5280 §4.1.2.5.

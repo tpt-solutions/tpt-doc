@@ -13,7 +13,7 @@
 use tpt_doc_core::DocError;
 use tpt_doc_pdf::{Document, Font, Page};
 
-use crate::css::TextAlign;
+use crate::css::{ComputedStyle, TextAlign};
 use crate::html::{self, BlockElement, HtmlNode, TableRow};
 
 /// Target page size.
@@ -132,6 +132,20 @@ impl Renderer {
         engine.finish()
     }
 
+    /// Merge `data` into an HTML `template` (see [`crate::template`]) and render
+    /// the result to PDF.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if the template is malformed or references a
+    /// missing field, or if the PDF cannot be generated.
+    pub fn render_template(
+        &self,
+        template: &str,
+        data: &serde_json::Value,
+    ) -> Result<Vec<u8>, DocError> {
+        self.render_html(&crate::template::merge(template, data)?)
+    }
+
     /// Render an HTML string to laid-out pages without serializing a PDF.
     #[must_use]
     pub fn render_pages(&self, html: &str) -> Vec<Page> {
@@ -206,8 +220,16 @@ impl<'r> Engine<'r> {
                 let size = style
                     .font_size_pt
                     .unwrap_or(self.renderer.base_font_size_pt);
-                self.draw_wrapped(children, size, style.text_align, self.content_width);
+                // `margin` and `padding` were parsed and then ignored, so all
+                // spacing came from the engine's fixed gap.
+                self.apply_top_margin(style);
+                let align = style.text_align;
+                let bold = style.is_bold();
+                self.with_left_padding(style, |engine| {
+                    engine.draw_wrapped(children, size, align, engine.content_width, bold);
+                });
                 self.y -= 6.0;
+                self.apply_bottom_margin(style);
                 if style.page_break_after {
                     self.start_page();
                 }
@@ -224,10 +246,15 @@ impl<'r> Engine<'r> {
                 let size = style
                     .font_size_pt
                     .unwrap_or_else(|| sizes[(*level as usize).clamp(1, 6) - 1]);
+                self.apply_top_margin(style);
                 self.y -= 8.0;
                 self.ensure_room(size * 1.5);
-                self.draw_wrapped(children, size, style.text_align, self.content_width);
+                let align = style.text_align;
+                self.with_left_padding(style, |engine| {
+                    engine.draw_wrapped(children, size, align, engine.content_width, true);
+                });
                 self.y -= 4.0;
+                self.apply_bottom_margin(style);
                 if style.page_break_after {
                     self.start_page();
                 }
@@ -245,14 +272,59 @@ impl<'r> Engine<'r> {
         }
     }
 
+    /// Apply a style's top margin before a block is drawn.
+    fn apply_top_margin(&mut self, style: &ComputedStyle) {
+        if let Some([top, _, _, _]) = style.margin {
+            self.y -= top;
+        }
+    }
+
+    /// Apply a style's bottom margin after a block has been drawn.
+    fn apply_bottom_margin(&mut self, style: &ComputedStyle) {
+        if let Some([_, _, bottom, _]) = style.margin {
+            self.y -= bottom;
+        }
+    }
+
+    /// Narrow the content column for a block's left padding, run `body`, then
+    /// restore it.
+    ///
+    /// The padding must not leak into the next block, so the column is scoped to
+    /// the block rather than adjusted in place.
+    fn with_left_padding<T>(
+        &mut self,
+        style: &ComputedStyle,
+        body: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let left = style
+            .padding
+            .map_or(0.0, |[_, _, _, left]| left)
+            .min(self.content_width - 1.0)
+            .max(0.0);
+        if left <= 0.0 {
+            return body(self);
+        }
+        let (x0, width) = (self.x0, self.content_width);
+        self.x0 += left;
+        self.content_width -= left;
+        let out = body(self);
+        self.x0 = x0;
+        self.content_width = width;
+        out
+    }
+
     /// Word-wrap inline content into `available_width` and draw each line
     /// box at the cursor. Advances the cursor past the text block.
+    ///
+    /// `base_bold` carries the block's own `font-weight`, which applies to
+    /// every run inside it regardless of inline `<b>` tags.
     fn draw_wrapped(
         &mut self,
         children: &[HtmlNode],
         size: f32,
         align: Option<TextAlign>,
         available_width: f32,
+        base_bold: bool,
     ) {
         // Break inline content into styled words; '\n' in text content
         // (from explicit line structure) forces a break.
@@ -267,10 +339,10 @@ impl<'r> Engine<'r> {
                 for line in content.split('\n') {
                     for word in line.split(' ') {
                         if !word.is_empty() {
-                            words.push((word.to_owned(), *bold, *italic));
+                            words.push((word.to_owned(), *bold || base_bold, *italic));
                         }
                     }
-                    words.push((String::from("\n"), *bold, *italic));
+                    words.push((String::from("\n"), *bold || base_bold, *italic));
                 }
                 words.pop(); // drop the trailing break marker
             }
@@ -343,31 +415,19 @@ impl<'r> Engine<'r> {
         let padding = 3.0;
         let size = self.renderer.base_font_size_pt;
         let line_height = size * 1.35;
-        let char_width = 0.52 * size;
         #[allow(clippy::cast_precision_loss)] // column counts are tiny
         let col_width = self.content_width / cols as f32;
 
         for row in rows {
-            let row_height = row
+            // Wrap every cell up front so the row height fits the tallest one.
+            let wrapped: Vec<Vec<String>> = row
                 .cells
                 .iter()
-                .map(|cell| {
-                    let text_len: f32 = cell
-                        .iter()
-                        .map(|n| match n {
-                            HtmlNode::Text { content, .. } => {
-                                #[allow(clippy::cast_precision_loss)]
-                                let len = content.len() as f32;
-                                len
-                            }
-                            HtmlNode::Block(_) => 0.0,
-                        })
-                        .sum();
-                    let usable = (col_width - 2.0 * padding).max(char_width);
-                    let lines = ((text_len * char_width) / usable).ceil().max(1.0);
-                    lines * line_height + 2.0 * padding
-                })
-                .fold(line_height + 2.0 * padding, f32::max);
+                .map(|cell| Self::wrap_cell(cell, col_width - 2.0 * padding, size))
+                .collect();
+            let cell_lines = wrapped.iter().map(Vec::len).max().unwrap_or(1).max(1);
+            #[allow(clippy::cast_precision_loss)] // line counts are small
+            let row_height = (cell_lines as f32) * line_height + 2.0 * padding;
             self.ensure_room(row_height);
             let top = self.y;
             let bottom = top - row_height;
@@ -377,26 +437,57 @@ impl<'r> Engine<'r> {
                 let index_f = index as f32;
                 let x = self.x0 + col_width * index_f;
                 self.current().rect(x, bottom, col_width, row_height);
-                let text: String = cell
-                    .iter()
-                    .filter_map(|n| match n {
-                        HtmlNode::Text { content, .. } => Some(content.clone()),
-                        HtmlNode::Block(_) => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                if !text.is_empty() {
-                    let bold = matches!(cell.first(), Some(HtmlNode::Text { bold: true, .. }));
-                    self.current().text(
-                        &text,
-                        face_id(bold, false),
-                        size,
-                        (x + padding, top - padding - size),
-                    );
+                let bold = matches!(cell.first(), Some(HtmlNode::Text { bold: true, .. }));
+                // Each wrapped line is drawn as its own text op, inside the
+                // cell. Drawing the whole cell on one line overflowed the
+                // column even though the row box had grown to fit.
+                for (line_index, line) in wrapped[index].iter().enumerate() {
+                    #[allow(clippy::cast_precision_loss)]
+                    let baseline = top - padding - size - (line_index as f32) * line_height;
+                    self.current()
+                        .text(line, face_id(bold, false), size, (x + padding, baseline));
                 }
             }
             self.y = bottom;
         }
+    }
+
+    /// Wrap one table cell's inline content into lines that fit `available_width`.
+    ///
+    /// A cell with no text yields no lines, so an empty cell draws only its border.
+    fn wrap_cell(cell: &[HtmlNode], available_width: f32, size: f32) -> Vec<String> {
+        let mut lines: Vec<String> = Vec::new();
+        let mut current = String::new();
+        let space_width = approx_text_width(" ", size);
+        let width = available_width.max(space_width);
+
+        for node in cell {
+            let HtmlNode::Text { content, .. } = node else {
+                // A nested block inside a cell contributes its own text later;
+                // block-level content in a cell is not part of the supported
+                // subset, so it is skipped rather than dropped silently.
+                continue;
+            };
+            for word in content.split_whitespace() {
+                let word_width = approx_text_width(word, size);
+                let candidate = if current.is_empty() {
+                    word_width
+                } else {
+                    approx_text_width(&current, size) + space_width + word_width
+                };
+                if !current.is_empty() && candidate > width {
+                    lines.push(std::mem::take(&mut current));
+                }
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(word);
+            }
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+        lines
     }
 
     fn finish(self) -> Result<Vec<u8>, DocError> {

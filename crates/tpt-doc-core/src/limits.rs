@@ -175,12 +175,8 @@ mod tests {
     #[test]
     fn empty_input_is_fine() {
         let mut input = std::io::Cursor::new(Vec::new());
-        assert!(
-            Limits::default()
-                .read_to_end(&mut input)
-                .expect("empty")
-                .is_empty()
-        );
+        let bytes = Limits::default().read_to_end(&mut input).expect("empty");
+        assert_eq!(bytes.len(), 0);
     }
 
     /// A row count at the limit is the last acceptable value; the next one is

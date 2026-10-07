@@ -2,15 +2,17 @@
 
 ## Workspace Structure
 
-The tpt-doc workspace is divided into seven focused crates arranged in a dependency hierarchy:
+The tpt-doc workspace is divided into ten focused crates arranged in a dependency hierarchy:
 
 ```
-tpt-doc-layout ──┐
-tpt-doc-sign   ──┤
-tpt-doc-pdf    ──┼── tpt-doc-core
-tpt-doc-edi    ──┤
-tpt-doc-fhir   ──┤
-tpt-doc-spreadsheet ─┘
+tpt-doc-layout ──► tpt-doc-pdf ──┐
+tpt-doc-sign   ──────────────────┤
+tpt-doc-ubl    ──► (pdf, optional `facturx`) ┤
+tpt-doc-word        ─────────────┼── tpt-doc-core
+tpt-doc-spreadsheet ─────────────┤
+tpt-doc-edi    ──────────────────┤
+tpt-doc-hl7v2  ──────────────────┤
+tpt-doc-fhir   ──────────────────┘
 ```
 
 `tpt-doc-core` is the only `no_std` crate and carries zero external dependencies. All other crates depend on it and require `std`.

@@ -26,19 +26,46 @@ mod oid {
 ///
 /// The signature is RSA-PSS with SHA-256, MGF1-SHA-256, and a 32-byte salt.
 ///
+/// The certificate's validity window is checked against the system clock. Use
+/// [`sign_detached_at`] to supply the time explicitly, which is what
+/// reproducible builds and tests want.
+///
 /// # Errors
-/// Returns [`DocError`] if the certificate cannot be parsed or signing fails.
+/// Returns [`DocError`] if the certificate is not valid now, does not belong to
+/// `key`, cannot be parsed, or signing fails.
 pub fn sign_detached(
     data: &[u8],
     key: &PrivateKey,
     cert_der: &[u8],
     rng: &dyn SecureRandom,
 ) -> Result<Vec<u8>, DocError> {
+    sign_detached_at(data, key, cert_der, rng, crate::pades::unix_now())
+}
+
+/// Create a `CAdES-BES` detached signature, taking the signing time as an
+/// explicit number of seconds since the Unix epoch.
+///
+/// The certificate's validity window is checked against `unix_seconds`, so an
+/// expired or not-yet-valid certificate fails here rather than producing a
+/// signature that no conforming verifier accepts.
+///
+/// # Errors
+/// Returns [`DocError`] if the certificate is not valid at `unix_seconds`, does
+/// not belong to `key`, cannot be parsed, or signing fails.
+pub fn sign_detached_at(
+    data: &[u8],
+    key: &PrivateKey,
+    cert_der: &[u8],
+    rng: &dyn SecureRandom,
+    unix_seconds: i64,
+) -> Result<Vec<u8>, DocError> {
     // A key that is not the private half of the embedded certificate still
     // produces a well-formed CMS whose signature no verifier can attribute to
     // that certificate. Failing here is far cheaper to diagnose than a rejected
     // document downstream.
-    crate::pem::Certificate::from_der(cert_der)?.check_key_matches(key)?;
+    let certificate = crate::pem::Certificate::from_der(cert_der)?;
+    certificate.check_key_matches(key)?;
+    certificate.check_validity(unix_seconds)?;
 
     let (_, cert) = parse_x509_certificate(cert_der)
         .map_err(|e| DocError::invalid_format(format!("signer certificate unparsable: {e}")))?;
@@ -173,9 +200,11 @@ fn build_signed_attrs(message_digest: &[u8], cert_digest: &[u8]) -> Result<Vec<u
     // `hashAlgorithm` is DEFAULT sha256, so it is omitted (B3); a present
     // default is a DER violation that strict validators reject.
     let ess_cert_id = der::sequence(&der::octet_string(cert_digest));
+    // SigningCertificateV2 ::= SEQUENCE { certs SEQUENCE OF ESSCertIDv2, .. }
+    let certs = der::sequence(&ess_cert_id);
     let signing_certificate_v2 = attr(
         der::oid(oid::SIGNING_CERTIFICATE_V2)?,
-        der::sequence(&[ess_cert_id].concat()),
+        der::sequence(&certs),
     );
 
     let mut attrs: Vec<Vec<u8>> = vec![content_type, message_digest_attr, signing_certificate_v2];
@@ -201,6 +230,20 @@ mod tests {
     const TEST_KEY_PEM: &str = include_str!("../tests/fixtures/test_key.pem");
     const TEST_CERT_PEM: &str = include_str!("../tests/fixtures/test_cert.pem");
 
+    /// `SigningCertificateV2` must be `SEQ { SEQ OF { ESSCertIDv2 } }` with
+    /// the default SHA-256 `hashAlgorithm` omitted (B3).
+    #[test]
+    fn signing_certificate_v2_has_sequence_of_level() {
+        let attrs = build_signed_attrs(&[0u8; 32], &[0xAB; 32]).expect("attrs");
+        // Expected value encoding: 30 26 | 30 24 | 30 22 | 04 20 <32 bytes>
+        let mut expected = vec![0x30, 0x26, 0x30, 0x24, 0x30, 0x22, 0x04, 0x20];
+        expected.extend_from_slice(&[0xAB; 32]);
+        // Attribute value is wrapped in SET OF (0x31 0x28).
+        let mut set = vec![0x31, 0x28];
+        set.extend_from_slice(&expected);
+        assert!(attrs.windows(set.len()).any(|w| w == set.as_slice()));
+    }
+
     #[test]
     fn cades_structure_embeds_issuer_and_cert() {
         let key = PrivateKey::from_pem(TEST_KEY_PEM.as_bytes()).expect("key");
@@ -219,6 +262,30 @@ mod tests {
         assert!(
             cms.windows(cert_der.len()).any(|w| w == cert_der),
             "certificate embedded in CMS"
+        );
+    }
+
+    /// The certificate's validity window must be enforced, or an expired
+    /// certificate produces a signature no conforming verifier accepts.
+    #[test]
+    fn an_expired_certificate_is_rejected_at_signing_time() {
+        let key = PrivateKey::from_pem(TEST_KEY_PEM.as_bytes()).expect("key");
+        let cert_der = crate::pem::pem_to_der(TEST_CERT_PEM.as_bytes()).expect("cert der");
+        let certificate = crate::pem::Certificate::from_der(&cert_der).expect("cert");
+        let rng = ring::rand::SystemRandom::new();
+
+        let err = sign_detached_at(b"data", &key, &cert_der, &rng, certificate.not_after() + 1)
+            .expect_err("expired certificate must fail");
+        assert!(err.to_string().contains("expired"), "{err}");
+
+        let err = sign_detached_at(b"data", &key, &cert_der, &rng, certificate.not_before() - 1)
+            .expect_err("not-yet-valid certificate must fail");
+        assert!(err.to_string().contains("not valid until"), "{err}");
+
+        // Inside the window it still signs.
+        assert!(
+            sign_detached_at(b"data", &key, &cert_der, &rng, certificate.not_before()).is_ok(),
+            "notBefore is inclusive"
         );
     }
 

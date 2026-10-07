@@ -17,7 +17,7 @@ pub mod pem;
 /// `XAdES` enveloped XML signatures (`rsa-sha256`).
 pub mod xades;
 
-pub use pades::sign;
+pub use pades::{sign, sign_at};
 pub use pem::{Certificate, PrivateKey};
 pub use xades::sign as sign_xml;
 

@@ -16,9 +16,15 @@ rust-version.workspace = true
 [features]
 default = ["std"]
 std = []
+# `Serialize`/`Deserialize` for `ValidationReport`, so a structured report can
+# cross a process boundary (an MCP server, a CLI, an HTTP API). Off by default
+# to keep the no_std build free of dependencies.
+serde = ["dep:serde", "std"]
 
 [dependencies]
-# zero external deps — intentional
+# zero external deps unless a feature asks for one — intentional
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+serde_json = { workspace = true }

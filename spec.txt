@@ -2,7 +2,7 @@ Design Document 1: tpt-doc
 The Enterprise Document & Data Substrate
 1. Vision
 To provide high-assurance, pure-Rust, spec-compliant document generation and parsing for civic and enterprise platforms. It eliminates the need to shell out to Python/Java or rely on fragile, bloated crates, ensuring strict compliance with standards like NZISM, HL7 FHIR R5, and HIPC 2020, all while maintaining a 100% MIT-compatible dependency chain.
-2. Workspace Architecture (7 Crates)
+2. Workspace Architecture (10 Crates)
 tpt-doc-core: Shared traits, zero-copy buffer abstractions (bytes-like but no_std), and unified error types.
 tpt-doc-spreadsheet: Strict, memory-efficient .xlsx (OOXML) and .csv parsing/generation without loading entire files into RAM.
 tpt-doc-fhir: HL7 FHIR R5 typed parsing, validation, and serialization (JSON/XML) with compile-time resource validation.

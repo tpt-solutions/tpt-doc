@@ -11,6 +11,9 @@ members = [
     "crates/tpt-doc-word",
     "crates/tpt-doc-ubl",
     "crates/tpt-doc-hl7v2",
+    "crates/tpt-doc",
+    "crates/tpt-doc-cli",
+    "crates/tpt-doc-convert",
 ]
 
 [workspace.package]
@@ -43,6 +46,14 @@ insta = "1"
 tpt-doc-core = { path = "crates/tpt-doc-core", version = "0.1.0" }
 tpt-doc-pdf   = { path = "crates/tpt-doc-pdf",   version = "0.1.0" }
 tpt-doc-fhir  = { path = "crates/tpt-doc-fhir",  version = "0.1.0" }
+tpt-doc-spreadsheet = { path = "crates/tpt-doc-spreadsheet", version = "0.1.0" }
+tpt-doc-edi    = { path = "crates/tpt-doc-edi",    version = "0.1.0" }
+tpt-doc-sign   = { path = "crates/tpt-doc-sign",   version = "0.1.0" }
+tpt-doc-layout = { path = "crates/tpt-doc-layout", version = "0.1.0" }
+tpt-doc-word   = { path = "crates/tpt-doc-word",   version = "0.1.0" }
+tpt-doc-ubl    = { path = "crates/tpt-doc-ubl",    version = "0.1.0" }
+tpt-doc-hl7v2  = { path = "crates/tpt-doc-hl7v2",  version = "0.1.0" }
+tpt-doc-convert = { path = "crates/tpt-doc-convert", version = "0.1.0" }
 
 [profile.release]
 opt-level = 3

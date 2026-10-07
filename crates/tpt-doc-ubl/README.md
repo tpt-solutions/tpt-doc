@@ -18,10 +18,16 @@ Billing 3.0 elements, with built-in arithmetic validation against the
   monetary totals.
 - PEPPOL BIS Billing 3.0 syntax rules and EN 16931 business rules validated
   automatically, returning `Vec<UblValidationError>` with rule references.
-- XML round-tripping (`to_xml` / `from_xml`).
+- XML round-tripping (`to_xml` / `from_xml`). Elements are matched by structural
+  position, so a `TaxScheme/ID`, a `DeliveryParty`, or a nested `cbc:ID` cannot
+  overwrite the field it merely shares a name with. Malformed amounts are
+  rejected rather than silently read as zero.
 - Optional **Factur-X / ZUGFeRD** hybrid invoices: embed the UBL XML inside a
   PDF as an associated file.
-- Tax category handling for `S`, `Z`, `E`, `AE`, `K`, `G`, `O`, and `L`.
+- Tax category handling for `S`, `Z`, `E`, `AE`, `K`, `G`, `O`, `L`, and `M`.
+- Credit notes use the credit-note element names (`cbc:CreditNoteTypeCode`,
+  `cac:CreditNoteLine`, `cbc:CreditedQuantity`), and any UN/EDIFACT 1001
+  document type code round-trips (`380`, `381`, `384`, `386`, `389`, …).
 
 ## Installation
 
@@ -54,8 +60,8 @@ let mut invoice = Invoice::new(
     Party::new("Customer Ltd"),
 );
 
-invoice.push_line(InvoiceLine::new(1, "Consulting", 2.0, 150.0));
-assert_eq!(invoice.total(), 300.0);
+invoice.push_line(InvoiceLine::new(1, "Consulting", 2.into(), 150.into())?);
+assert_eq!(invoice.total(), Money::from_cents(30_000));
 
 let xml = invoice.to_xml()?;
 assert!(xml.windows(18).any(|w| w == b"urn:cen.eu:en16931"));
@@ -76,7 +82,7 @@ let mut invoice = Invoice::new(
     Party::new("Supplier Ltd"),
     Party::new("Customer Ltd"),
 );
-invoice.push_line(InvoiceLine::new(1, "Widget", 1.0, 100.0));
+invoice.push_line(InvoiceLine::new(1, "Widget", 1.into(), 100.into())?);
 
 let errors = validate(&invoice);
 for error in &errors {
@@ -98,12 +104,12 @@ let mut invoice = Invoice::new(
     Party::new("Supplier Ltd"),
     Party::new("Customer Ltd"),
 );
-invoice.push_line(InvoiceLine::new(1, "Widget", 2.0, 120.0));
+invoice.push_line(InvoiceLine::new(1, "Widget", 2.into(), 120.into())?);
 invoice.push_tax_subtotal(TaxSubtotal {
     category: TaxCategory::Standard,
-    rate_percent: 15.0,
-    taxable_amount: 240.0,
-    tax_amount: 36.0,
+    rate_percent: 15.into(),
+    taxable_amount: Money::from_cents(24000),
+    tax_amount: Money::from_cents(3600),
 });
 // `total()` is the tax-inclusive payable amount: 240.00 net + 36.00 GST.
 assert_eq!(invoice.total(), 276.0);
@@ -161,7 +167,7 @@ assert!(err.to_string().contains("U+0001"));
 | Module | Contents |
 |---|---|
 | `invoice` | `Invoice`, `InvoiceTypeCode`, `facturx` submodule (`attach_xml`). |
-| `types` | `Party`, `Address`, `InvoiceLine`, `TaxCategory`, `TaxSubtotal`, `MonetaryTotal`, `IssueDate`. |
+| `types` | `Party`, `Address`, `InvoiceLine`, `TaxCategory` (`S`, `Z`, `E`, `AE`, `K`, `G`, `O`, `L`, `M`), `TaxSubtotal`, `MonetaryTotal`, `IssueDate`. |
 | `validate` | `validate`, `UblValidationError` — PEPPOL BIS Billing 3.0 rules. |
 
 ## Feature flags

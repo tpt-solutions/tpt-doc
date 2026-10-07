@@ -9,15 +9,21 @@ Targets report-generation use cases, not full browser rendering. Parses a restri
 ## Supported HTML Subset
 
 - Block elements: `<div>`, `<p>`, `<h1>`-`<h6>`, `<table>`, `<tr>`, `<td>`, `<th>`
+- Blocks nest: `<div>` is a container, so `<div><h1>…</h1><table>…</table></div>`
+  lays out both children
+- `<p>` and headings implicitly close an open paragraph, so `<p>one<p>two`
+  produces two paragraphs rather than one
 - Inline elements: `<b>`/`<strong>` (bold), `<i>`/`<em>` (italic)
 - `html`/`head`/`body` wrappers are transparent; `head` content is dropped
 - The five predefined entities plus numeric character references are decoded
+- A `>` inside a quoted attribute value does not end the tag
+- Table cell text wraps inside its column; the row box grows to fit
 - Malformed input never panics - unclosed elements are closed implicitly
 
 ## Supported CSS Properties
 
-- `font-size` (`pt`, `px`), `font-weight`
-- `margin`, `padding` (with shorthand expansion)
+- `font-size` (`pt`, `px`), `font-weight` (600 and above selects the bold face)
+- `margin` (top and bottom), `padding` (left, scoped to the block)
 - `page-break-before`, `page-break-after`
 - `text-align` (left, right, center, justify)
 

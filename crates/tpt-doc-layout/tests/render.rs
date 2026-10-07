@@ -125,6 +125,155 @@ fn approx_width_is_monotonic_and_scales() {
     assert!(approx_text_width("", 10.0) == 0.0);
 }
 
+/// A `>` inside a quoted attribute value is not the end of the tag. Scanning
+/// to the first `>` truncated `<div style="…">` mid-value, leaving stray text
+/// (`700">`) in the output.
+#[test]
+fn a_gt_inside_a_quoted_attribute_does_not_end_the_tag() {
+    let html = r#"<p style="font-weight: bold > 700">Styled</p>"#;
+    let pdf = Renderer::new().render_html(html).expect("render");
+    let text = content_text(&pdf);
+    assert!(text.contains("(Styled) Tj"), "{text:?}");
+    assert!(
+        !text.contains("(700") && !text.contains("\">"),
+        "tag leaked into the text: {text:?}"
+    );
+}
+
+/// Block elements nested inside a container must be laid out, not swallowed.
+/// `<div>` and `<p>` opened a frame that only collected inline children, so an
+/// `h1` or `p` inside a `div` was parsed into a child list the renderer never
+/// walked — the content silently vanished.
+#[test]
+fn nested_blocks_are_rendered() {
+    let html = "<div><h1>Nested Heading</h1><p>Nested body</p></div>";
+    let text = content_text(&Renderer::new().render_html(html).expect("render"));
+    assert!(text.contains("(Nested) Tj"), "heading lost: {text:?}");
+    assert!(text.contains("(Heading) Tj"), "heading lost: {text:?}");
+    assert!(text.contains("(Nested) Tj"), "body lost: {text:?}");
+    assert!(text.contains("(body) Tj"), "body lost: {text:?}");
+}
+
+/// A table inside a container is still a table, with its cell borders drawn.
+#[test]
+fn a_table_nested_in_a_div_is_rendered() {
+    let html = "<div><table><tr><td>Cell A</td></tr></table></div>";
+    let pdf = Renderer::new().render_html(html).expect("render");
+    let text = content_text(&pdf);
+    assert!(text.contains("(Cell A) Tj"), "cell text lost: {text:?}");
+    assert!(text.contains(" re S"), "cell border lost: {text:?}");
+}
+
+/// HTML closes an open `<p>` when a block element starts. Without that,
+/// `<p>one<p>two` parsed as a single paragraph reading "one two".
+#[test]
+fn a_paragraph_is_implicitly_closed_by_the_next_block() {
+    use tpt_doc_layout::html::{BlockElement, HtmlNode, parse};
+
+    let nodes = parse("<p>First para<p>Second para");
+    let paragraphs: Vec<&BlockElement> = nodes
+        .iter()
+        .filter_map(|node| match node {
+            HtmlNode::Block(block @ BlockElement::Paragraph { .. }) => Some(block),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        paragraphs.len(),
+        2,
+        "an unclosed <p> must not swallow the next one: {nodes:?}"
+    );
+
+    // Both paragraphs must reach the page, at different vertical positions.
+    let text = content_text(
+        &Renderer::new()
+            .render_html("<p>First para<p>Second para")
+            .expect("render"),
+    );
+    assert!(text.contains("(First) Tj"), "{text:?}");
+    assert!(text.contains("(Second) Tj"), "{text:?}");
+    let positions: Vec<&str> = text
+        .split(" Td (")
+        .skip(1)
+        .filter_map(|chunk| chunk.split(' ').next())
+        .collect();
+    assert!(positions.len() >= 4, "expected four words drawn: {text:?}");
+    // The first and third word start the two paragraphs, on different lines.
+    assert_ne!(
+        positions.first(),
+        positions.get(2),
+        "the two paragraphs must not share a line box: {text:?}"
+    );
+}
+
+/// `font-weight: bold` was parsed but never applied; only `<b>` produced bold
+/// text.
+#[test]
+fn font_weight_bold_is_applied() {
+    let html = r#"<p style="font-weight: 700">Heavy</p>"#;
+    let pdf = Renderer::new().render_html(html).expect("render");
+    let text = String::from_utf8_lossy(&pdf).into_owned();
+    // The bold face is font id 2 (1-based) in the content stream.
+    assert!(
+        text.contains("/F2 "),
+        "font-weight: bold must select the bold face: {text:?}"
+    );
+}
+
+/// `margin` was parsed and then ignored, so spacing came only from the
+/// engine's fixed gap.
+#[test]
+fn margin_is_applied() {
+    let plain = Renderer::new()
+        .render_html("<p>Same text</p>")
+        .expect("render");
+    let spaced = Renderer::new()
+        .render_html(r#"<p style="margin: 40pt">Same text</p>"#)
+        .expect("render");
+    assert_ne!(
+        plain, spaced,
+        "a 40pt margin must move the text, not be ignored"
+    );
+}
+
+/// `padding` was parsed and then ignored.
+#[test]
+fn padding_is_applied() {
+    let plain = Renderer::new()
+        .render_html("<p>Same text</p>")
+        .expect("render");
+    let padded = Renderer::new()
+        .render_html(r#"<p style="padding: 30pt">Same text</p>"#)
+        .expect("render");
+    assert_ne!(plain, padded, "padding must affect layout");
+}
+
+/// Long cell text must wrap inside the column instead of running past it. The
+/// column has to be narrow for wrapping to be observable, so the table needs
+/// several columns.
+#[test]
+fn long_table_cell_text_wraps() {
+    let cell = "alpha bravo charlie delta echo foxtrot golf hotel india juliet";
+    let html = format!("<table><tr><td>a</td><td>b</td><td>{cell}</td></tr></table>");
+    let text = content_text(&Renderer::new().render_html(&html).expect("render"));
+    let lines: Vec<&str> = text.lines().filter(|l| l.contains("Tj")).collect();
+    assert!(
+        lines.len() >= 2,
+        "the long cell should span several text ops: {text:?}"
+    );
+    // Each drawn line must stay within its column: a single line carrying every
+    // word means the text was emitted unwrapped.
+    let widest = lines
+        .iter()
+        .map(|line| line.matches("Tj").count())
+        .max()
+        .unwrap_or(0);
+    assert!(
+        widest < 11,
+        "one line holds all 11 words, so wrapping did not happen: {text:?}"
+    );
+}
+
 #[cfg(test)]
 mod proptests {
     use super::*;
@@ -164,4 +313,55 @@ mod proptests {
             let _ = renderer.render_html(&html);
         }
     }
+}
+
+#[test]
+fn template_merge_renders_invoice_lines_into_the_pdf() {
+    use std::io::Read as _;
+
+    let template = "<h1>Invoice {{number}}</h1>\
+        <table>{{#each lines}}<tr><td>{{desc}}</td><td>{{total}}</td></tr>{{/each}}</table>\
+        {{#if paid}}<p>PAID</p>{{else}}<p>Due {{due}}</p>{{/if}}";
+    let data = serde_json::json!({
+        "number": "INV-7 & co",
+        "paid": false,
+        "due": "2026-11-01",
+        "lines": [{"desc": "Consulting", "total": "300.00"}, {"desc": "Hosting", "total": "120.00"}],
+    });
+    let pdf = Renderer::new()
+        .render_template(template, &data)
+        .expect("render");
+    assert!(pdf.starts_with(b"%PDF-"));
+
+    // Content streams are deflated; inflate every stream and look for the text.
+    let mut text = String::new();
+    let mut rest = &pdf[..];
+    while let Some(start) = rest.windows(6).position(|w| w == b"stream") {
+        let body = &rest[start + 6..];
+        let body = body
+            .strip_prefix(b"\r\n")
+            .or_else(|| body.strip_prefix(b"\n"))
+            .unwrap_or(body);
+        let Some(end) = body.windows(9).position(|w| w == b"endstream") else {
+            break;
+        };
+        let mut inflated = Vec::new();
+        if flate2::read::ZlibDecoder::new(&body[..end])
+            .read_to_end(&mut inflated)
+            .is_ok()
+        {
+            text.push_str(&String::from_utf8_lossy(&inflated));
+        }
+        rest = &body[end + 9..];
+    }
+    for needle in ["(INV-7)", "(&)", "(Consulting)", "(120.00)", "(2026-11-01)"] {
+        assert!(text.contains(needle), "missing {needle:?} in {text}");
+    }
+    assert!(!text.contains("PAID"));
+
+    assert!(
+        Renderer::new()
+            .render_template("{{missing}}", &data)
+            .is_err()
+    );
 }

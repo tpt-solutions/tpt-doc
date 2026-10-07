@@ -1,0 +1,23 @@
+[package]
+name = "tpt-doc-cli"
+description = "The `tpt` command line tool: sniff, inspect, validate and render documents (HL7 v2, EDI, FHIR, UBL, PDF, DOCX, XLSX)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["cli", "hl7", "fhir", "edi", "validation"]
+categories = ["command-line-utilities", "parser-implementations"]
+readme = "README.md"
+rust-version.workspace = true
+
+[[bin]]
+name = "tpt"
+path = "src/main.rs"
+
+[dependencies]
+tpt-doc = { path = "../tpt-doc", version = "0.1.0", default-features = false, features = ["fhir", "hl7v2", "edi", "ubl", "layout", "spreadsheet", "word"] }
+tpt-doc-convert = { workspace = true }
+serde_json = { workspace = true }
+zip = { workspace = true }

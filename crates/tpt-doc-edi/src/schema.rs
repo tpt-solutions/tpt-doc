@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use tpt_doc_core::DocError;
+use tpt_doc_core::{DocError, Location, Severity, ValidationIssue, ValidationReport};
 
 use crate::edifact::Segment;
 use crate::x12::X12Segment;
@@ -101,6 +101,32 @@ impl fmt::Display for SchemaViolation {
 
 impl std::error::Error for SchemaViolation {}
 
+impl From<&SchemaViolation> for ValidationIssue {
+    fn from(violation: &SchemaViolation) -> Self {
+        // The segment index is the natural location: an EDI violation points
+        // at a segment in the stream, not a path through a tree.
+        ValidationIssue::new(violation.segment_tag.clone(), violation.message.clone())
+            .with_severity(Severity::Error)
+            .with_location(Location::Index(violation.segment_index))
+    }
+}
+
+impl SchemaViolation {
+    /// Convert a slice of violations into a structured [`ValidationReport`].
+    ///
+    /// Lets callers move to the shared report — with severity, locations, and
+    /// optional serialization — without the `Vec<SchemaViolation>` API
+    /// disappearing.
+    #[must_use]
+    pub fn to_report(violations: &[Self]) -> ValidationReport {
+        let mut report = ValidationReport::default();
+        for violation in violations {
+            report.push_issue(ValidationIssue::from(violation));
+        }
+        report
+    }
+}
+
 /// Element tables keyed by segment id.
 pub struct ElementTables {
     by_segment: HashMap<String, Vec<ElementDef>>,
@@ -170,7 +196,22 @@ impl ElementTables {
         index: usize,
         tag: &str,
     ) -> Option<SchemaViolation> {
-        let position = def.position as usize;
+        // Positions are 1-based. A table row declaring `0` is malformed, and
+        // `0 - 1` underflows: a panic in debug and a huge index in release,
+        // which silently skips the check instead of reporting the bad table.
+        let position = usize::from(def.position);
+        // Element positions are 1-based. A table row declaring `0` is malformed,
+        // and `0 - 1` underflows: a panic in debug, and a huge index in release
+        // that silently skips the check instead of reporting the bad table.
+        if position == 0 {
+            return Some(SchemaViolation {
+                segment_index: index,
+                segment_tag: tag.to_owned(),
+                message: format!(
+                    "schema table declares element position 0 for {tag}, which is invalid"
+                ),
+            });
+        }
         let value = elements.get(position - 1).copied();
         let present = value.is_some_and(|v| !v.trim().is_empty());
         let violation = |message: String| {
@@ -317,6 +358,284 @@ pub fn validate_edifact(tables: &ElementTables, segments: &[Segment<'_>]) -> Vec
         });
     }
     violations
+}
+
+/// Validate the X12 envelope: ISA/IEA, GS/GE, and ST/SE bracketing, with the
+/// control numbers and counts each pair must agree on.
+///
+/// The docs promised these checks and they were not implemented — only the
+/// element-level and required-segment rules existed, so an interchange with a
+/// mismatched `SE01` count or a `GE02` that did not repeat `GS06` passed
+/// validation.
+///
+/// Every violation is reported at the index of the segment that carries it, so
+/// a caller can point at the right line.
+#[must_use]
+pub fn validate_x12_envelope(segments: &[X12Segment<'_>]) -> Vec<SchemaViolation> {
+    let mut violations = Vec::new();
+    let at = |index: usize, tag: &str, message: String| SchemaViolation {
+        segment_index: index,
+        segment_tag: tag.to_owned(),
+        message,
+    };
+    let count = |elements: &[&str]| {
+        elements
+            .first()
+            .and_then(|e| e.trim().parse::<usize>().ok())
+    };
+
+    // ISA13 is the interchange control number, repeated in IEA02.
+    let isa_number = segments
+        .iter()
+        .find(|s| s.tag() == "ISA")
+        .and_then(|s| s.elements().get(12).copied());
+    let mut groups = 0usize;
+    let mut open_gs: Option<(usize, String)> = None;
+    let mut open_st: Option<(usize, String)> = None;
+
+    for (index, segment) in segments.iter().enumerate() {
+        let elements = segment.elements();
+        match segment.tag() {
+            "GS" => {
+                if let Some((open, control)) = open_gs.take() {
+                    violations.push(unclosed("GS", open, &control, "GE"));
+                }
+                groups += 1;
+                // GS06 is the group control number, repeated in GE02.
+                open_gs = Some((index, control_of(elements, 5)));
+            }
+            "GE" => match open_gs.take() {
+                None => violations.push(at(index, "GE", "GE without a matching GS".to_owned())),
+                Some((_, opened)) => {
+                    let declared = count(elements);
+                    let found = sets_count(segments, index);
+                    violations.extend(check_ge(index, elements, &opened, declared, found));
+                }
+            },
+            "ST" => {
+                if let Some((open, control)) = open_st.take() {
+                    violations.push(unclosed("ST", open, &control, "SE"));
+                }
+                // ST02 is repeated in SE02.
+                open_st = Some((index, control_of(elements, 1)));
+            }
+            "SE" => {
+                match open_st.take() {
+                    None => violations.push(at(index, "SE", "SE without a matching ST".to_owned())),
+                    Some((st_index, opened)) => {
+                        // SE01 counts ST through SE inclusive.
+                        let actual = index - st_index + 1;
+                        violations.extend(check_se(index, elements, &opened, actual));
+                    }
+                }
+            }
+            "IEA" => {
+                violations.extend(close_open_envelopes(
+                    index,
+                    &mut open_gs,
+                    &mut open_st,
+                    elements,
+                    groups,
+                    isa_number,
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    if let Some((open, control)) = open_gs {
+        violations.push(at(
+            open,
+            "GS",
+            format!("GS without a matching GE (open control `{control}`)"),
+        ));
+    }
+    if let Some((open, control)) = open_st {
+        violations.push(at(
+            open,
+            "ST",
+            format!("ST without a matching SE (open control `{control}`)"),
+        ));
+    }
+
+    // The interchange must open with ISA and close with IEA. Without these a
+    // file that simply omits IEA validates clean, even though a receiver would
+    // reject it outright.
+    let first = segments.first().map(X12Segment::tag);
+    if first != Some("ISA") {
+        violations.push(at(
+            0,
+            first.unwrap_or("∅"),
+            "interchange must start with ISA".to_owned(),
+        ));
+    }
+    if segments.len() >= 2 && segments.last().map(X12Segment::tag) != Some("IEA") {
+        let last = segments.len() - 1;
+        violations.push(at(
+            last,
+            segments[last].tag(),
+            "interchange must end with IEA".to_owned(),
+        ));
+    }
+    violations
+}
+
+/// Read a control-number element, trimmed, defaulting to empty.
+fn control_of(elements: &[&str], position: usize) -> String {
+    elements
+        .get(position)
+        .copied()
+        .unwrap_or("")
+        .trim()
+        .to_owned()
+}
+
+/// The violation for an envelope segment left open at end of input.
+fn unclosed(tag: &str, index: usize, control: &str, partner: &str) -> SchemaViolation {
+    SchemaViolation {
+        segment_index: index,
+        segment_tag: tag.to_owned(),
+        message: format!("{tag} without a matching {partner} (open control `{control}`)"),
+    }
+}
+
+/// Close out any `GS`/`ST` still open when an `IEA` arrives, and check the
+/// `IEA` itself: `IEA01` counts the functional groups and `IEA02` must repeat
+/// `ISA13`.
+#[allow(clippy::too_many_arguments)]
+fn close_open_envelopes(
+    index: usize,
+    open_gs: &mut Option<(usize, String)>,
+    open_st: &mut Option<(usize, String)>,
+    elements: &[&str],
+    groups: usize,
+    isa_number: Option<&str>,
+) -> Vec<SchemaViolation> {
+    let mut out = Vec::new();
+    if let Some((open, control)) = open_gs.take() {
+        out.push(SchemaViolation {
+            segment_index: open,
+            segment_tag: "GS".to_owned(),
+            message: format!("GS without a matching GE (open control `{control}`)"),
+        });
+    }
+    if let Some((open, control)) = open_st.take() {
+        out.push(SchemaViolation {
+            segment_index: open,
+            segment_tag: "ST".to_owned(),
+            message: format!("ST without a matching SE (open control `{control}`)"),
+        });
+    }
+    if let Some(declared) = elements
+        .first()
+        .and_then(|e| e.trim().parse::<usize>().ok())
+        && declared != groups
+    {
+        out.push(SchemaViolation {
+            segment_index: index,
+            segment_tag: "IEA".to_owned(),
+            message: format!("IEA count {declared} does not match {groups} functional group(s)"),
+        });
+    }
+    let control = elements.get(1).copied().unwrap_or("").trim();
+    if let Some(isa) = isa_number.map(str::trim)
+        && control != isa
+    {
+        out.push(SchemaViolation {
+            segment_index: index,
+            segment_tag: "IEA".to_owned(),
+            message: format!(
+                "IEA control number `{control}` does not match ISA control number `{isa}`"
+            ),
+        });
+    }
+    out
+}
+
+/// Check a `GE` against the `GS` that opened the group.
+///
+/// `GE01` is the number of transaction sets in the group; `GE02` must repeat
+/// `GS06`.
+fn check_ge(
+    index: usize,
+    elements: &[&str],
+    gs_control: &str,
+    declared: Option<usize>,
+    set_count: usize,
+) -> Vec<SchemaViolation> {
+    let mut out = Vec::new();
+    if let Some(declared) = declared
+        && declared != set_count
+    {
+        out.push(SchemaViolation {
+            segment_index: index,
+            segment_tag: "GE".to_owned(),
+            message: format!(
+                "GE count {declared} does not match the {set_count} transaction set(s) in the group"
+            ),
+        });
+    }
+    let control = elements.get(1).copied().unwrap_or("").trim();
+    if control != gs_control {
+        out.push(SchemaViolation {
+            segment_index: index,
+            segment_tag: "GE".to_owned(),
+            message: format!(
+                "GE control number `{control}` does not match GS control number `{gs_control}`"
+            ),
+        });
+    }
+    out
+}
+
+/// Check an `SE` against the `ST` that opened the transaction set.
+///
+/// `SE01` counts the segments from `ST` through `SE` inclusive; `SE02` must
+/// repeat `ST02`.
+fn check_se(
+    index: usize,
+    elements: &[&str],
+    st_control: &str,
+    segment_count: usize,
+) -> Vec<SchemaViolation> {
+    let mut out = Vec::new();
+    if let Some(declared) = elements
+        .first()
+        .and_then(|e| e.trim().parse::<usize>().ok())
+        && declared != segment_count
+    {
+        out.push(SchemaViolation {
+            segment_index: index,
+            segment_tag: "SE".to_owned(),
+            message: format!(
+                "SE count {declared} does not match {segment_count} segments from ST to SE"
+            ),
+        });
+    }
+    let control = elements.get(1).copied().unwrap_or("").trim();
+    if control != st_control {
+        out.push(SchemaViolation {
+            segment_index: index,
+            segment_tag: "SE".to_owned(),
+            message: format!(
+                "SE control number `{control}` does not match ST control number `{st_control}`"
+            ),
+        });
+    }
+    out
+}
+
+/// How many `ST` segments precede the `GE` at `ge_index` (GE01 counts the
+/// transaction sets in the group, not the whole interchange).
+fn sets_count(segments: &[X12Segment<'_>], ge_index: usize) -> usize {
+    let group_start = segments[..ge_index]
+        .iter()
+        .rposition(|s| s.tag() == "GS")
+        .unwrap_or(0);
+    segments[group_start..ge_index]
+        .iter()
+        .filter(|s| s.tag() == "ST")
+        .count()
 }
 
 /// A required-segment rule from a transaction-set table.

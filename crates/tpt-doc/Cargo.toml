@@ -1,0 +1,52 @@
+[package]
+name = "tpt-doc"
+description = "Facade for the tpt-doc workspace: PDF, DOCX, XLSX, FHIR, HL7 v2, EDI, UBL e-invoicing and signing behind per-format feature flags"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["document", "pdf", "fhir", "hl7", "invoice"]
+categories = ["encoding", "parser-implementations"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc"
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+tpt-doc-pdf = { workspace = true, optional = true }
+tpt-doc-spreadsheet = { workspace = true, optional = true }
+tpt-doc-fhir = { workspace = true, optional = true }
+tpt-doc-edi = { workspace = true, optional = true }
+tpt-doc-hl7v2 = { workspace = true, optional = true }
+tpt-doc-word = { workspace = true, optional = true }
+tpt-doc-ubl = { workspace = true, optional = true }
+tpt-doc-layout = { workspace = true, optional = true }
+# `ring` and `x509-parser` are only pulled in by the `sign` feature.
+tpt-doc-sign = { workspace = true, optional = true }
+tpt-doc-convert = { workspace = true, optional = true }
+
+[features]
+default = ["std"]
+std = []
+# Format features: enable only what you need.
+pdf = ["dep:tpt-doc-pdf"]
+spreadsheet = ["dep:tpt-doc-spreadsheet"]
+fhir = ["dep:tpt-doc-fhir"]
+edi = ["dep:tpt-doc-edi"]
+hl7v2 = ["dep:tpt-doc-hl7v2"]
+word = ["dep:tpt-doc-word"]
+ubl = ["dep:tpt-doc-ubl"]
+layout = ["pdf", "dep:tpt-doc-layout"]
+sign = ["pdf", "dep:tpt-doc-sign"]
+convert = ["hl7v2", "fhir", "dep:tpt-doc-convert"]
+# UBL invoice embedded in a PDF (Factur-X / ZUGFeRD).
+facturx = ["ubl", "pdf", "tpt-doc-ubl/facturx"]
+# `Serialize`/`Deserialize` on structured validation reports.
+serde = ["tpt-doc-core/serde"]
+# Everything.
+full = ["pdf", "spreadsheet", "fhir", "edi", "hl7v2", "word", "ubl", "layout", "sign", "facturx", "convert", "serde"]
+
+[package.metadata.docs.rs]
+all-features = true

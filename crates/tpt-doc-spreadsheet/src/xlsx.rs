@@ -5,6 +5,7 @@ use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
 use tpt_doc_core::Limits;
+use tpt_doc_core::Location;
 use tpt_doc_core::escape_xml_text;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
@@ -47,7 +48,9 @@ impl Row {
 /// a time via a pull-based XML event loop — peak memory is proportional to a
 /// single worksheet plus one row, never the whole workbook as a DOM tree.
 ///
-/// Only the first worksheet (`xl/worksheets/sheet1.xml`) is read; the shared
+/// Only the first worksheet is read — the one `xl/workbook.xml` lists first,
+/// resolved through `xl/_rels/workbook.xml.rels` (falling back to
+/// `xl/worksheets/sheet1.xml` for packages without a workbook part). The shared
 /// strings table (`xl/sharedStrings.xml`) is parsed when present so that
 /// `t="s"` cells written by Excel and `LibreOffice` resolve correctly.
 ///
@@ -81,7 +84,8 @@ impl XlsxReader {
         let mut archive = ZipArchive::new(cursor)
             .map_err(|e| DocError::invalid_format(format!("not a valid ZIP archive: {e}")))?;
         let shared_strings = read_shared_strings(&mut archive, &limits)?;
-        let sheet = read_entry(&mut archive, "xl/worksheets/sheet1.xml", &limits)?;
+        let sheet_path = resolve_first_sheet(&mut archive, &limits)?;
+        let sheet = read_entry(&mut archive, &sheet_path, &limits)?;
         Ok(Self {
             sheet,
             shared_strings,
@@ -155,14 +159,21 @@ struct CellState {
 }
 
 impl CellState {
-    fn finish(self, shared: &[String]) -> Cell {
+    fn finish(self, shared: &[String]) -> Result<Cell, DocError> {
         let value = self.value.trim().to_owned();
-        match self.kind {
+        Ok(match self.kind {
             CellKind::Inline => Cell::String(self.inline),
-            CellKind::Shared => shared
-                .get(value.parse::<usize>().unwrap_or(usize::MAX))
-                .cloned()
-                .map_or(Cell::Blank, Cell::String),
+            CellKind::Shared => {
+                let index = value.parse::<usize>().map_err(|_| {
+                    DocError::invalid_format(format!("bad shared string index `{value}`"))
+                })?;
+                shared.get(index).cloned().map(Cell::String).ok_or_else(|| {
+                    DocError::invalid_format(format!(
+                        "shared string index {index} out of range ({} strings)",
+                        shared.len()
+                    ))
+                })?
+            }
             CellKind::Boolean => Cell::Boolean(value == "1" || value == "true"),
             CellKind::Error => Cell::Error(value),
             CellKind::FormulaString => Cell::String(value),
@@ -175,7 +186,7 @@ impl CellState {
                         .map_or_else(|_| Cell::String(value), Cell::Number)
                 }
             }
-        }
+        })
     }
 }
 
@@ -240,19 +251,20 @@ impl RowsIter<'_> {
     /// Place the finished cell at its declared column, padding any skipped
     /// columns with blanks. Cells without an `r` attribute are appended
     /// sequentially, which is what sparse writers expect.
-    fn finish_cell(&mut self) {
+    fn finish_cell(&mut self) -> Result<(), DocError> {
         let state = std::mem::take(&mut self.cell);
         let column = state.column.unwrap_or(self.row_cells.len());
-        let cell = state.finish(self.shared);
+        let cell = state.finish(self.shared)?;
         if self.row_cells.len() < column {
             self.row_cells.resize_with(column, || Cell::Blank);
         }
         if column < self.row_cells.len() {
             // An out-of-order or duplicate reference: keep the first value
             // rather than shifting the row.
-            return;
+            return Ok(());
         }
         self.row_cells.push(cell);
+        Ok(())
     }
 
     /// Route decoded text into whichever cell buffer the open element feeds.
@@ -287,7 +299,11 @@ impl Iterator for RowsIter<'_> {
                 Ok(event) => event,
                 Err(e) => {
                     self.done = true;
-                    return Some(Err(DocError::invalid_format(format!("XML error: {e}"))));
+                    // The byte offset says which part of the worksheet failed,
+                    // rather than leaving the reader to re-scan the sheet.
+                    let at = self.reader.buffer_position();
+                    return Some(Err(DocError::invalid_format(format!("XML error: {e}"))
+                        .with_location(Location::Offset(at))));
                 }
             };
             match event {
@@ -329,7 +345,10 @@ impl Iterator for RowsIter<'_> {
                 Event::Empty(start) => {
                     if start.name().as_ref() == "c" {
                         // A bare <c/> with no children is an empty cell.
-                        self.finish_cell();
+                        if let Err(e) = self.finish_cell() {
+                            self.done = true;
+                            return Some(Err(e));
+                        }
                     }
                 }
                 Event::Text(text) => match quick_xml::escape::unescape(&text) {
@@ -352,7 +371,12 @@ impl Iterator for RowsIter<'_> {
                     self.depth = self.depth.saturating_sub(1);
                     match end.name().as_ref() {
                         "v" | "is" => self.capture = Capture::None,
-                        "c" => self.finish_cell(),
+                        "c" => {
+                            if let Err(e) = self.finish_cell() {
+                                self.done = true;
+                                return Some(Err(e));
+                            }
+                        }
                         // The row limit is checked before the row is produced,
                         // so the caller sees an error rather than a silent stop.
                         "row" => match self.finish_row() {
@@ -391,6 +415,96 @@ fn read_entry(
     limits.read_to_end(&mut file)
 }
 
+/// Read an attribute (first match among `names`) from an element's start tag.
+fn attr_of(
+    e: &quick_xml::events::BytesStart<'_>,
+    names: &[&str],
+) -> Option<String> {
+    e.attributes()
+        .filter_map(std::result::Result::ok)
+        .find(|a| names.iter().any(|n| a.key.as_ref() == *n))
+        .and_then(|a| {
+            a.normalized_value(XML_VERSION)
+                .ok()
+                .map(std::borrow::Cow::into_owned)
+        })
+}
+
+/// Find the part holding the first worksheet listed in `xl/workbook.xml`.
+///
+/// Follows the first `<sheet r:id>` through `xl/_rels/workbook.xml.rels`.
+/// Packages with no workbook part keep the historical `sheet1.xml` default.
+fn resolve_first_sheet(
+    archive: &mut ZipArchive<std::io::Cursor<&[u8]>>,
+    limits: &Limits,
+) -> Result<String, DocError> {
+    const DEFAULT: &str = "xl/worksheets/sheet1.xml";
+    if archive.by_name("xl/workbook.xml").is_err() {
+        return Ok(DEFAULT.to_owned());
+    }
+    let workbook = read_entry(archive, "xl/workbook.xml", limits)?;
+    let mut rid = None;
+    let mut reader = quick_xml::Reader::from_reader(workbook.as_slice());
+    let mut depth = 0usize;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                depth += 1;
+                limits.check_xml_depth(depth)?;
+                if e.name().as_ref() == "sheet" {
+                    rid = attr_of(&e, &["r:id"]);
+                    break;
+                }
+            }
+            Ok(Event::Empty(e)) if e.name().as_ref() == "sheet" => {
+                rid = attr_of(&e, &["r:id"]);
+                break;
+            }
+            Ok(Event::End(_)) => depth = depth.saturating_sub(1),
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(e) => {
+                let at = reader.buffer_position();
+                return Err(DocError::invalid_format(format!("XML error: {e}"))
+                    .with_location(Location::Offset(at)));
+            }
+        }
+    }
+    let Some(rid) = rid else {
+        return Ok(DEFAULT.to_owned());
+    };
+    if archive.by_name("xl/_rels/workbook.xml.rels").is_err() {
+        return Ok(DEFAULT.to_owned());
+    }
+    let rels = read_entry(archive, "xl/_rels/workbook.xml.rels", limits)?;
+    let mut reader = quick_xml::Reader::from_reader(rels.as_slice());
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e) | Event::Empty(e)) if e.name().as_ref() == "Relationship" => {
+                if attr_of(&e, &["Id"]).as_deref() == Some(rid.as_str())
+                    && let Some(target) = attr_of(&e, &["Target"])
+                {
+                    return Ok(match target.strip_prefix('/') {
+                        Some(absolute) => absolute.to_owned(),
+                        None => format!("xl/{target}"),
+                    });
+                }
+            }
+            Ok(Event::Eof) => {
+                return Err(DocError::invalid_format(format!(
+                    "workbook relationship `{rid}` not found"
+                )));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                let at = reader.buffer_position();
+                return Err(DocError::invalid_format(format!("XML error: {e}"))
+                    .with_location(Location::Offset(at)));
+            }
+        }
+    }
+}
+
 /// Parse the shared strings table into an ordered `Vec<String>`.
 ///
 /// Rich-text runs (`<r><t>`) inside a single `<si>` are concatenated, matching
@@ -408,6 +522,8 @@ fn read_shared_strings(
     let mut current = String::new();
     let mut in_si = false;
     let mut in_t = false;
+    // Phonetic runs (`<rPh>`) are furigana annotations, not cell text.
+    let mut in_rph = false;
     let mut depth = 0usize;
     loop {
         match reader.read_event() {
@@ -419,7 +535,8 @@ fn read_shared_strings(
                         in_si = true;
                         current.clear();
                     }
-                    "t" if in_si => in_t = true,
+                    "rPh" => in_rph = true,
+                    "t" if in_si && !in_rph => in_t = true,
                     _ => {}
                 }
             }
@@ -427,6 +544,7 @@ fn read_shared_strings(
                 depth = depth.saturating_sub(1);
                 match end.name().as_ref() {
                     "t" => in_t = false,
+                    "rPh" => in_rph = false,
                     "si" => strings.push(std::mem::take(&mut current)),
                     _ => {}
                 }
@@ -444,7 +562,11 @@ fn read_shared_strings(
             }
             Ok(Event::Eof) => return Ok(strings),
             Ok(_) => {}
-            Err(e) => return Err(DocError::invalid_format(format!("XML error: {e}"))),
+            Err(e) => {
+                let at = reader.buffer_position();
+                return Err(DocError::invalid_format(format!("XML error: {e}"))
+                    .with_location(Location::Offset(at)));
+            }
         }
     }
 }

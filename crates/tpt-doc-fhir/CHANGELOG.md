@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `FhirValidationError::to_report` and `From<&FhirValidationError> for
+  ValidationIssue`, converting the format-specific errors into the shared
+  `tpt_doc_core::ValidationReport`. The JSON-pointer field path becomes a
+  `Location::Path`. The existing `Result<_, FhirValidationError>` API is
+  unchanged.
+
+### Changed
+
+- Validation findings now carry the `FHIR R5` invariant they enforce, so a
+  caller can map a result back to the specification without parsing the
+  message text: `obs-7` (a final/amended/corrected observation needs a value or
+  an effective time), `enc-1` (a finished encounter needs a period end), and
+  `enc-3` (the period end must not precede the start).
+
+### Added
+
 - `Patient::from_xml_with_limits` and `Observation::from_xml_with_limits`
   applying `tpt_doc_core::Limits`: nesting is refused past `max_xml_depth`.
 

@@ -25,4 +25,4 @@ pub mod schema;
 pub mod x12;
 
 pub use edifact::{EdifactParser, Segment};
-pub use schema::{ElementTables, SchemaViolation, TransactionTables};
+pub use schema::{ElementTables, SchemaViolation, TransactionTables, validate_x12_envelope};

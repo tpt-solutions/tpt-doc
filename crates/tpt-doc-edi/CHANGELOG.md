@@ -5,6 +5,33 @@ All notable changes to `tpt-doc-edi` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `SchemaViolation::to_report` and `From<&SchemaViolation> for ValidationIssue`,
+  converting the format-specific violations into the shared
+  `tpt_doc_core::ValidationReport`. The segment index becomes a
+  `Location::Index`, so a caller can find the offending line in the stream.
+  The existing `Vec<SchemaViolation>` API is unchanged.
+- `validate_x12_envelope` implementing the X12 envelope checks the docs
+  promised but never shipped: `ST`/`SE`, `GS`/`GE`, and `ISA`/`IEA`
+  bracketing, plus `SE01` (segment count from ST through SE), `GE01`
+  (transaction sets in the group), `IEA01` (functional groups), and the
+  control-number agreements `SE02`=`ST02`, `GE02`=`GS06`, `IEA02`=`ISA13`.
+
+### Fixed
+
+- An element position of `0` in a schema table no longer underflows
+  `elements.get(position - 1)`. Element positions are 1-based, so a malformed
+  table row panicked in debug builds and silently skipped the check in
+  release. It is now reported as a malformed-table violation.
+- Every X12 envelope violation is reported at the offending segment's own
+  index. An unclosed `ST` or `GS` was previously reported at index 0, which
+  pointed a reader at the wrong line.
+- An interchange that omits `ISA` at the start or `IEA` at the end is now
+  reported instead of validating clean.
+
 ## [0.1.0] - 2026-02-10
 
 ### Added

@@ -16,6 +16,7 @@ rust-version.workspace = true
 [dependencies]
 tpt-doc-core = { workspace = true }
 tpt-doc-pdf   = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

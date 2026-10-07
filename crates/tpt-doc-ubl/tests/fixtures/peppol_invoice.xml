@@ -4,31 +4,50 @@
   <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
   <cbc:ID>INV-PEPPOL-001</cbc:ID>
   <cbc:IssueDate>2026-01-15</cbc:IssueDate>
+  <cbc:DueDate>2026-02-14</cbc:DueDate>
   <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
   <cbc:DocumentCurrencyCode>NZD</cbc:DocumentCurrencyCode>
+  <cbc:BuyerReference>PO-2026-0042</cbc:BuyerReference>
   <cac:AccountingSupplierParty>
     <cac:Party>
-      <cbc:EndpointID schemeID="0208">942703567</cbc:EndpointID>
+      <cbc:EndpointID schemeID="0088">9429041234567</cbc:EndpointID>
       <cac:PartyName><cbc:Name>Wellington Data Systems Ltd</cbc:Name></cac:PartyName>
       <cac:PostalAddress>
+        <cbc:StreetName>1 Lambton Quay</cbc:StreetName>
         <cbc:CityName>Wellington</cbc:CityName>
         <cbc:PostalZone>6011</cbc:PostalZone>
         <cac:Country><cbc:IdentificationCode>NZ</cbc:IdentificationCode></cac:Country>
       </cac:PostalAddress>
-      <cac:PartyTaxScheme><cbc:CompanyID>GST-111</cbc:CompanyID></cac:PartyTaxScheme>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>GST-111</cbc:CompanyID>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:PartyTaxScheme>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Wellington Data Systems Ltd</cbc:RegistrationName>
+        <cbc:CompanyID>9429041234567</cbc:CompanyID>
+      </cac:PartyLegalEntity>
     </cac:Party>
   </cac:AccountingSupplierParty>
   <cac:AccountingCustomerParty>
     <cac:Party>
-      <cbc:EndpointID schemeID="0208">123456789</cbc:EndpointID>
+      <cbc:EndpointID schemeID="0088">9429047654321</cbc:EndpointID>
       <cac:PartyName><cbc:Name>Auckland Analytics Ltd</cbc:Name></cac:PartyName>
       <cac:PostalAddress>
+        <cbc:StreetName>22 Queen Street</cbc:StreetName>
         <cbc:CityName>Auckland</cbc:CityName>
         <cbc:PostalZone>1010</cbc:PostalZone>
         <cac:Country><cbc:IdentificationCode>NZ</cbc:IdentificationCode></cac:Country>
       </cac:PostalAddress>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Auckland Analytics Ltd</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
     </cac:Party>
   </cac:AccountingCustomerParty>
+  <cac:PaymentMeans>
+    <cbc:PaymentMeansCode>30</cbc:PaymentMeansCode>
+    <cbc:PaymentID>INV-PEPPOL-001</cbc:PaymentID>
+    <cac:PayeeFinancialAccount><cbc:ID>12-3456-7890123-00</cbc:ID></cac:PayeeFinancialAccount>
+  </cac:PaymentMeans>
   <cac:TaxTotal>
     <cbc:TaxAmount currencyID="NZD">63.00</cbc:TaxAmount>
     <cac:TaxSubtotal>
@@ -37,26 +56,42 @@
       <cac:TaxCategory>
         <cbc:ID>S</cbc:ID>
         <cbc:Percent>15.0</cbc:Percent>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
       </cac:TaxCategory>
     </cac:TaxSubtotal>
   </cac:TaxTotal>
   <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="NZD">420.00</cbc:LineExtensionAmount>
     <cbc:TaxExclusiveAmount currencyID="NZD">420.00</cbc:TaxExclusiveAmount>
     <cbc:TaxInclusiveAmount currencyID="NZD">483.00</cbc:TaxInclusiveAmount>
     <cbc:PayableAmount currencyID="NZD">483.00</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
   <cac:InvoiceLine>
     <cbc:ID>1</cbc:ID>
-    <cbc:InvoicedQuantity>2</cbc:InvoicedQuantity>
+    <cbc:InvoicedQuantity unitCode="HUR">2</cbc:InvoicedQuantity>
     <cbc:LineExtensionAmount currencyID="NZD">300.00</cbc:LineExtensionAmount>
-    <cac:Item><cbc:Name>Consulting</cbc:Name></cac:Item>
+    <cac:Item>
+      <cbc:Name>Consulting</cbc:Name>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>15</cbc:Percent>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
     <cac:Price><cbc:PriceAmount currencyID="NZD">150.00</cbc:PriceAmount></cac:Price>
   </cac:InvoiceLine>
   <cac:InvoiceLine>
     <cbc:ID>2</cbc:ID>
-    <cbc:InvoicedQuantity>12</cbc:InvoicedQuantity>
+    <cbc:InvoicedQuantity unitCode="MON">12</cbc:InvoicedQuantity>
     <cbc:LineExtensionAmount currencyID="NZD">120.00</cbc:LineExtensionAmount>
-    <cac:Item><cbc:Name>Hosting</cbc:Name></cac:Item>
+    <cac:Item>
+      <cbc:Name>Hosting</cbc:Name>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>15</cbc:Percent>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
     <cac:Price><cbc:PriceAmount currencyID="NZD">10.00</cbc:PriceAmount></cac:Price>
   </cac:InvoiceLine>
 </Invoice>

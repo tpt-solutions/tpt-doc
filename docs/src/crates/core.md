@@ -62,3 +62,37 @@ row that tripped `max_rows`, or a `level limit` error for deep nesting.
 | `DocReader` | Implemented by all document parsers |
 | `DocWriter` | Implemented by all document generators |
 | `Validate` | Runtime validation returning a structured `ValidationReport` |
+
+### `ValidationReport`
+
+Every finding carries more than a message:
+
+| Field | Purpose |
+|---|---|
+| `field_path` | JSON-pointer-style path, e.g. `/lines/0/quantity` |
+| `message` | Human-readable description |
+| `severity` | `Warning` or `Error` |
+| `rule_id` | The published rule, e.g. `BR-CO-10`, `PEPPOL-EN16931-R001`, `obs-7` |
+| `location` | `Path`, `Index` (segment), or `Offset` (byte position) |
+
+`rule_id` matters because a caller should be able to trace a finding back to
+the clause it came from without parsing prose.
+
+```rust,ignore
+let report = invoice.validate();
+if report.has_errors() {
+    for issue in report.errors() {
+        eprintln!("{} [{}]: {}", issue.field_path, issue.rule_id, issue.message);
+    }
+}
+// `has_errors` is what a receiver should check: warnings do not make a
+// document unacceptable, so `is_valid()` alone is too strict for triage.
+```
+
+`ValidationReport::push(path, message)` records a `Severity::Error`, matching
+its existing meaning; use `push_issue` with an explicit severity for
+advisories.
+
+Enable the `serde` feature to derive `Serialize`/`Deserialize`, so a report can
+cross a process boundary (an MCP server, a CLI, an HTTP API). It is off by
+default so the `no_std` build stays dependency-free.

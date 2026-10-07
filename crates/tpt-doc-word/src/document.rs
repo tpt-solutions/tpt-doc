@@ -4,6 +4,7 @@ use std::io::Write as _;
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
 use tpt_doc_core::Limits;
+use tpt_doc_core::Location;
 use tpt_doc_core::escape_xml_text;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
@@ -517,7 +518,11 @@ impl DocxReader {
                     return Ok(text);
                 }
                 Ok(_) => {}
-                Err(e) => return Err(DocError::invalid_format(format!("XML error: {e}"))),
+                Err(e) => {
+                    let at = reader.buffer_position();
+                    return Err(DocError::invalid_format(format!("XML error: {e}"))
+                        .with_location(Location::Offset(at)));
+                }
             }
         }
     }

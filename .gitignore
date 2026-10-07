@@ -28,3 +28,6 @@ lcov.info
 # Environment
 .env
 *.env.local
+
+# Local tooling
+.kilo/

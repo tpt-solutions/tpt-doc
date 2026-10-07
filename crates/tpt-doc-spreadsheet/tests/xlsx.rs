@@ -305,3 +305,69 @@ mod proptests {
         }
     }
 }
+
+/// Build a package from arbitrary `(name, body)` parts.
+fn package_of(parts: &[(&str, &str)]) -> Vec<u8> {
+    use std::io::Write as _;
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
+
+    let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    for (name, body) in parts {
+        zip.start_file(*name, options).expect("start entry");
+        zip.write_all(body.as_bytes()).expect("write entry");
+    }
+    zip.finish().expect("finish zip").into_inner()
+}
+
+const ONE_CELL_SHEET: &str = r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>"#;
+
+#[test]
+fn first_sheet_is_resolved_through_workbook_rels() {
+    // The first listed sheet lives in `sheet7.xml`, and a decoy sheet1 exists.
+    let bytes = package_of(&[
+        (
+            "xl/workbook.xml",
+            r#"<workbook xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="A" sheetId="1" r:id="rId9"/></sheets></workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<Relationships><Relationship Id="rId9" Target="worksheets/sheet7.xml"/></Relationships>"#,
+        ),
+        ("xl/sharedStrings.xml", "<sst><si><t>real</t></si></sst>"),
+        ("xl/worksheets/sheet7.xml", ONE_CELL_SHEET),
+        (
+            "xl/worksheets/sheet1.xml",
+            r#"<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>decoy</t></is></c></row></sheetData></worksheet>"#,
+        ),
+    ]);
+    let mut reader = XlsxReader::new(&bytes).expect("open");
+    let rows: Vec<Row> = reader.rows().collect::<Result<_, _>>().expect("rows");
+    assert_eq!(rows[0].cells, vec![Cell::String("real".into())]);
+}
+
+#[test]
+fn phonetic_runs_are_not_part_of_the_cell_text() {
+    let bytes = package_of(&[
+        (
+            "xl/sharedStrings.xml",
+            "<sst><si><t>漢字</t><rPh sb=\"0\" eb=\"2\"><t>かんじ</t></rPh></si></sst>",
+        ),
+        ("xl/worksheets/sheet1.xml", ONE_CELL_SHEET),
+    ]);
+    let mut reader = XlsxReader::new(&bytes).expect("open");
+    let rows: Vec<Row> = reader.rows().collect::<Result<_, _>>().expect("rows");
+    assert_eq!(rows[0].cells, vec![Cell::String("漢字".into())]);
+}
+
+#[test]
+fn out_of_range_shared_string_index_is_an_error() {
+    let bytes = package_of(&[
+        ("xl/sharedStrings.xml", "<sst></sst>"),
+        ("xl/worksheets/sheet1.xml", ONE_CELL_SHEET),
+    ]);
+    let mut reader = XlsxReader::new(&bytes).expect("open");
+    let result: Result<Vec<Row>, _> = reader.rows().collect();
+    assert!(result.is_err());
+}

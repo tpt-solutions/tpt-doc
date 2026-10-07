@@ -21,5 +21,7 @@ pub mod css;
 pub mod html;
 /// Block layout rendering to page content.
 pub mod render;
+/// Data-merge templating (`{{field}}`, `#if`, `#each`) over JSON.
+pub mod template;
 
 pub use render::{PageKind, Renderer, approx_text_width};

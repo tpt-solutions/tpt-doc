@@ -17,6 +17,17 @@ pub struct ComputedStyle {
     pub page_break_after: bool,
 }
 
+impl ComputedStyle {
+    /// Whether this style makes text bold.
+    ///
+    /// CSS treats 600 and above as bold. Only the four Helvetica faces are
+    /// embedded, so the distinction between 600 and 700 collapses here.
+    #[must_use]
+    pub fn is_bold(&self) -> bool {
+        self.font_weight.is_some_and(|weight| weight >= 600)
+    }
+}
+
 /// CSS `text-align` values supported by the layout engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAlign {

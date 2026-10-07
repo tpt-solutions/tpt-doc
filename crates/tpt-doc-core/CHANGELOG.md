@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Read::read_to_end`, and `check_rows` / `check_xml_depth` guards. Applied to
   `.xlsx` and `.docx` ZIP entries, the PNG IDAT inflate, and the XML parsers in
   spreadsheet, word, ubl, and fhir.
+- `ValidationIssue` now carries a `severity` (`Severity::Warning` /
+  `Severity::Error`), a `rule_id`, and a `Location` (`Path` for structured
+  documents, `Index` for stream segments, `Offset` for byte positions), with
+  `ValidationIssue::new` plus `with_severity`/`with_rule`/`with_location`.
+- `ValidationReport::has_errors`, `errors`, and `warnings`, so a caller can
+  reject a document on errors without re-reading every message.
+- Optional `serde` feature giving `Serialize`/`Deserialize` on
+  `ValidationIssue` and `ValidationReport`, for sending a report across a
+  process boundary (MCP server, CLI, HTTP). Off by default so the `no_std`
+  build stays dependency-free.
+- `Location` implements `Display` (`/a/b`, `#7`, `@4096`).
+
+### Changed
+
+- `ValidationReport::push` records a `Severity::Error`, matching its existing
+  "this is a violation" meaning. Callers that want advisories use
+  `push_issue` with an explicit severity.
 
 ## [0.1.0] - 2026-02-10
 

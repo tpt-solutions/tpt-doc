@@ -157,6 +157,32 @@ fn exactly_max_elements_is_accepted() {
 }
 
 #[test]
+fn a_schema_table_position_of_zero_is_reported_not_an_underflow() {
+    use tpt_doc_edi::edifact::EdifactParser;
+    use tpt_doc_edi::schema::{ElementTables, SchemaViolation};
+
+    // A malformed table row: element positions are 1-based, so `0` is invalid.
+    // Indexing with `position - 1` underflowed on that.
+    static BAD_TABLE: &str = "BOG\t0\tn\t1\t9\tM\nBOG\t1\tan\t1\t9\tO\n";
+    let tables = ElementTables::parse(BAD_TABLE);
+    let message = b"UNA:+.? 'UNB+UNOA:1+S+R+260101:0900+1'BOG++'UNZ+1+1'";
+    let segments: Vec<_> = EdifactParser::new(message)
+        .map(|segment| segment.expect("segment"))
+        .collect();
+    let bog = (0..segments.len())
+        .find(|i| segments[*i].tag() == "BOG")
+        .expect("BOG segment parsed");
+
+    let violations = tables.check_edifact(bog, &segments[bog]);
+    assert!(
+        violations
+            .iter()
+            .any(|SchemaViolation { message, .. }| message.contains("position 0")),
+        "{violations:?}"
+    );
+}
+
+#[test]
 fn parses_edifact_fixture_and_asserts_values() {
     let bytes = edifact_fixture();
     let segments: Vec<_> = EdifactParser::new(&bytes)

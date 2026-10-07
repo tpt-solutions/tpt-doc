@@ -15,11 +15,20 @@ No C-FFI, no OpenSSL, no shelling out.
 - **CAdES-BES** detached CMS `SignedData` signatures (RSA-PSS, SHA-256, MGF1-SHA-256).
 - **PAdES** PDF signatures via incremental update — the original PDF bytes are
   never modified, so the document stays valid and openable.
-- **XAdES** enveloped XML signatures using `rsa-sha256`.
+- **XAdES** enveloped XML signatures using `rsa-sha256`, with the
+  `QualifyingProperties` / `SignedProperties` / `SigningCertificate` block that
+  distinguishes an XAdES signature from plain XML-DSig. The properties are
+  referenced from `SignedInfo`, so they are signed rather than merely present.
 - Minimal, self-contained DER (TLV) encoder for CMS structures — no
   heavyweight ASN.1 dependency.
 - PEM key loading with PKCS#8 and PKCS#1 support.
-- Certificate parsing via `x509-parser`.
+- Certificate parsing via `x509-parser`, with the private key checked against
+  the certificate's public key and the validity window checked at signing time.
+- `pades::sign_at`, `cades::sign_detached_at`, and `xades::sign_at` take the
+  signing time explicitly, so signatures are reproducible; `/M` records the real
+  instant rather than a fixed date.
+- The PAdES signature is discoverable: a signature field with a widget
+  annotation, an `/AcroForm` with `/SigFlags 3`, and a redefined catalog.
 
 ## Installation
 
