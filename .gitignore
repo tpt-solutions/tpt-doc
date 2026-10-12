@@ -31,3 +31,7 @@ lcov.info
 
 # Local tooling
 .kilo/
+
+# tpt-testkit crate (detached from the workspace)
+/testkit/target/
+/testkit/Cargo.lock

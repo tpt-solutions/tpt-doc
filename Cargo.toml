@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["testkit"]
 members = [
     "crates/tpt-doc-core",
     "crates/tpt-doc-spreadsheet",

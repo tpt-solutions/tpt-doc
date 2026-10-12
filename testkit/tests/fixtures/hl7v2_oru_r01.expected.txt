@@ -1,0 +1,6 @@
+Ok(Segment { tag: "MSH", fields: ["|", "^~\\&", "LIS", "ACME", "HIS", "ACME", "20261001130000", "", "ORU^R01", "MSG00002", "P", "2.5.1"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "PID", fields: ["1", "", "12345^^^NZHPI^MR", "", "Smith^John"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "OBR", fields: ["1", "", "ORDER77", "GLU^Glucose panel"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "OBX", fields: ["1", "NM", "GLU^Glucose serum", "1", "5.2", "mmol/L", "70-110", "", "F"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "OBX", fields: ["2", "ST", "NOTE^Comment", "", "Fasting sample"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "NTE", fields: ["1", "", "Result verified by on-call technologist"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })

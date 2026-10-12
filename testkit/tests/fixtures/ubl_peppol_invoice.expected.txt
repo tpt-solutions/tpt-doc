@@ -1,0 +1,167 @@
+Invoice {
+    customization_id: "urn:cen.eu:en16931:2017",
+    profile_id: "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0",
+    id: "INV-PEPPOL-001",
+    type_code: Invoice,
+    issue_date: 2026-01-15,
+    supplier: Party {
+        name: "Wellington Data Systems Ltd",
+        address: Some(
+            Address {
+                street: Some(
+                    "1 Lambton Quay",
+                ),
+                city: Some(
+                    "Wellington",
+                ),
+                postal_code: Some(
+                    "6011",
+                ),
+                country_code: Some(
+                    "NZ",
+                ),
+            },
+        ),
+        tax_id: Some(
+            "GST-111",
+        ),
+        endpoint_id: Some(
+            "9429041234567",
+        ),
+        endpoint_scheme: Some(
+            "0088",
+        ),
+        legal_name: None,
+        legal_id: Some(
+            "9429041234567",
+        ),
+    },
+    customer: Party {
+        name: "Auckland Analytics Ltd",
+        address: Some(
+            Address {
+                street: Some(
+                    "22 Queen Street",
+                ),
+                city: Some(
+                    "Auckland",
+                ),
+                postal_code: Some(
+                    "1010",
+                ),
+                country_code: Some(
+                    "NZ",
+                ),
+            },
+        ),
+        tax_id: None,
+        endpoint_id: Some(
+            "9429047654321",
+        ),
+        endpoint_scheme: Some(
+            "0088",
+        ),
+        legal_name: None,
+        legal_id: None,
+    },
+    lines: [
+        InvoiceLine {
+            id: 1,
+            item_name: "Consulting",
+            quantity: Decimal {
+                mantissa: 2,
+                scale: 0,
+            },
+            unit_price: Decimal {
+                mantissa: 150,
+                scale: 0,
+            },
+            line_extension_amount: Money(
+                30000,
+            ),
+            unit_code: "HUR",
+            tax: Some(
+                LineTax {
+                    category: Standard,
+                    rate_percent: Decimal {
+                        mantissa: 15,
+                        scale: 0,
+                    },
+                },
+            ),
+        },
+        InvoiceLine {
+            id: 2,
+            item_name: "Hosting",
+            quantity: Decimal {
+                mantissa: 12,
+                scale: 0,
+            },
+            unit_price: Decimal {
+                mantissa: 10,
+                scale: 0,
+            },
+            line_extension_amount: Money(
+                12000,
+            ),
+            unit_code: "MON",
+            tax: Some(
+                LineTax {
+                    category: Standard,
+                    rate_percent: Decimal {
+                        mantissa: 15,
+                        scale: 0,
+                    },
+                },
+            ),
+        },
+    ],
+    tax_subtotals: [
+        TaxSubtotal {
+            category: Standard,
+            rate_percent: Decimal {
+                mantissa: 15,
+                scale: 0,
+            },
+            taxable_amount: Money(
+                42000,
+            ),
+            tax_amount: Money(
+                6300,
+            ),
+            exemption_reason: None,
+        },
+    ],
+    monetary_total: MonetaryTotal {
+        line_extension: Money(
+            42000,
+        ),
+        tax_exclusive: Money(
+            42000,
+        ),
+        tax_inclusive: Money(
+            48300,
+        ),
+        payable: Money(
+            48300,
+        ),
+    },
+    currency: "NZD",
+    buyer_reference: Some(
+        "PO-2026-0042",
+    ),
+    due_date: Some(
+        2026-02-14,
+    ),
+    payment_means: Some(
+        PaymentMeans {
+            code: "30",
+            payment_id: Some(
+                "INV-PEPPOL-001",
+            ),
+            account_id: Some(
+                "12-3456-7890123-00",
+            ),
+        },
+    ),
+}

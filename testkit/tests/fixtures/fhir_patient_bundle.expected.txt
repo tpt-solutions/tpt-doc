@@ -1,0 +1,5 @@
+type: collection
+Patient: 1
+Observation: 2
+Encounter: 1
+Organization: 1
