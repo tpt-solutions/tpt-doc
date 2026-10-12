@@ -1,0 +1,4 @@
+Row { index: 1, cells: [String("Alpha"), Number(1.5), Boolean(true)] }
+Row { index: 2, cells: [String("Beta <&> test"), String("inline text"), Error("#REF!")] }
+Row { index: 3, cells: [String("Γεωγραφία"), Number(-42.0)] }
+Row { index: 4, cells: [Blank, Number(3.14)] }
