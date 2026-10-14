@@ -47,7 +47,7 @@ jobs:
         with:
           workspaces: testkit
       # The corpus grows across runs: restore the most recent one, save a new one after each run.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/testkit/target/fuzz-corpus
           key: fuzz-corpus-${{ github.run_id }}
