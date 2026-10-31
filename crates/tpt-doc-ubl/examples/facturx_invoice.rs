@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let font = doc.embed_builtin_font(Font::Helvetica);
     let mut page = Page::a4();
     page.text(
-        &format!("Invoice {} from {}", invoice.id, invoice.supplier.name),
+        format!("Invoice {} from {}", invoice.id, invoice.supplier.name),
         font,
         14.0,
         (72.0, 760.0),
