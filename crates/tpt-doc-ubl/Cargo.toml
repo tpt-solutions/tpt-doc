@@ -30,3 +30,7 @@ facturx = ["dep:tpt-doc-pdf"]
 [dev-dependencies]
 proptest = { workspace = true }
 tpt-doc-core = { workspace = true }
+
+[[example]]
+name = "facturx_invoice"
+required-features = ["facturx"]
