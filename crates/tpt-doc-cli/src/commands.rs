@@ -299,3 +299,116 @@ pub fn convert(bytes: &[u8]) -> Result<(Vec<u8>, Vec<String>), String> {
         )),
     }
 }
+
+/// `tpt redact`: de-identify an HL7 v2 message or FHIR JSON with the Safe Harbor profile.
+/// Returns the message and an audit line per changed field (positions or paths only, never values).
+pub fn redact(bytes: &[u8]) -> Result<(Vec<u8>, Vec<String>), String> {
+    match detect(bytes)? {
+        Format::Hl7v2 => {
+            let result = tpt_doc::hl7v2::redact::redact(
+                bytes,
+                &tpt_doc::hl7v2::redact::RedactionProfile::safe_harbor(),
+            )
+            .map_err(|e| e.to_string())?;
+            let audit = result
+                .changes
+                .iter()
+                .map(|c| {
+                    let component = c.component.map_or_else(String::new, |m| format!(".{m}"));
+                    format!("{}[{}]-{}{component}", c.segment, c.segment_index, c.field)
+                })
+                .collect();
+            Ok((result.bytes, audit))
+        }
+        Format::FhirJson => {
+            let result = tpt_doc::fhir::redact::redact(
+                bytes,
+                &tpt_doc::fhir::redact::RedactionProfile::safe_harbor(),
+            )
+            .map_err(|e| e.to_string())?;
+            let audit = result
+                .changes
+                .iter()
+                .map(|c| format!("{}:{}x{}", c.resource_type, c.path, c.count))
+                .collect();
+            Ok((result.bytes, audit))
+        }
+        other => Err(format!(
+            "no redaction profile for {other}; only hl7v2 and fhir-json are supported"
+        )),
+    }
+}
+
+/// Result of `diff`.
+pub struct DiffOutcome {
+    /// Text for stdout.
+    pub output: String,
+    /// `true` when the documents are structurally identical.
+    pub identical: bool,
+}
+
+/// `tpt diff`: structural diff of two documents of the same format.
+pub fn diff(
+    left: &[u8],
+    right: &[u8],
+    ignore: &[String],
+    json: bool,
+) -> Result<DiffOutcome, String> {
+    use tpt_doc_diff::{ChangeKind, Options};
+
+    let (lf, rf) = (detect(left)?, detect(right)?);
+    if lf != rf {
+        return Err(format!(
+            "cannot diff a {lf} document against a {rf} document"
+        ));
+    }
+    let mut options = Options::default();
+    for prefix in ignore {
+        options = options.ignoring(prefix);
+    }
+    let result = match lf {
+        Format::Hl7v2 => tpt_doc_diff::diff_hl7(left, right, &options),
+        Format::Edifact => tpt_doc_diff::diff_edifact(left, right, &options),
+        Format::X12 => tpt_doc_diff::diff_x12(left, right, &options),
+        Format::FhirJson => tpt_doc_diff::diff_json(left, right, &options),
+        Format::Xlsx => tpt_doc_diff::diff_xlsx(left, right, &options),
+        Format::Docx => tpt_doc_diff::diff_docx(left, right, &options),
+        other => return Err(format!("no structural diff for {other}")),
+    }
+    .map_err(|e| e.to_string())?;
+
+    let output = if json {
+        let changes: Vec<_> = result
+            .changes
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "path": c.path,
+                    "kind": match c.kind {
+                        ChangeKind::Added => "added",
+                        ChangeKind::Removed => "removed",
+                        ChangeKind::Changed => "changed",
+                    },
+                    "left": c.left,
+                    "right": c.right,
+                })
+            })
+            .collect();
+        let doc = serde_json::json!({
+            "format": lf.to_string(),
+            "identical": result.is_empty(),
+            "changes": changes,
+        });
+        let mut s = serde_json::to_string_pretty(&doc).unwrap_or_default();
+        s.push('\n');
+        s
+    } else if result.is_empty() {
+        String::new()
+    } else {
+        result.to_string()
+    };
+    Ok(DiffOutcome {
+        output,
+        identical: result.is_empty(),
+    })
+}

@@ -9,6 +9,9 @@ tpt validate <FILE> [--json]     validate against the format's rules
 tpt render <FILE.html> [-o OUT]  render HTML to PDF (default: stdout)
 tpt text <FILE.docx>             extract plain text
 tpt convert <FILE.hl7> [-o OUT]  HL7 v2 ADT/ORU to a FHIR R5 bundle (JSON)
+tpt redact <FILE>               de-identify HL7 v2 or FHIR JSON
+tpt diff <A> <B> [--ignore PREFIX] [--json]
+                                 structural diff by path; exit 1 when they differ
 ```
 
 `<FILE>` may be `-` for stdin.

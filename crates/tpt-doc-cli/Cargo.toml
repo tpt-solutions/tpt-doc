@@ -10,6 +10,7 @@ homepage.workspace = true
 keywords = ["cli", "hl7", "fhir", "edi", "validation"]
 categories = ["command-line-utilities", "parser-implementations"]
 readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-cli"
 rust-version.workspace = true
 
 [[bin]]
@@ -19,5 +20,6 @@ path = "src/main.rs"
 [dependencies]
 tpt-doc = { path = "../tpt-doc", version = "0.1.0", default-features = false, features = ["fhir", "hl7v2", "edi", "ubl", "layout", "spreadsheet", "word"] }
 tpt-doc-convert = { workspace = true }
+tpt-doc-diff = { workspace = true }
 serde_json = { workspace = true }
 zip = { workspace = true }

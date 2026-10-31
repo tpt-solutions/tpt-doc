@@ -20,6 +20,9 @@ USAGE:
                                      render HTML to PDF; with --data, merge {{fields}} first
     tpt text <FILE.docx>             extract plain text
     tpt convert <FILE.hl7> [-o OUT]  HL7 v2 ADT/ORU to a FHIR R5 bundle (JSON)
+    tpt redact <FILE.hl7> [-o OUT]   de-identify HL7 v2 or FHIR JSON (Safe Harbor profile)
+    tpt diff <A> <B> [--ignore PREFIX]... [--json]
+                                     structural diff by path; exit 1 when they differ
 
 <FILE> may be `-` for stdin. Formats are detected from content.
 Exit codes: 0 ok/valid, 1 invalid, 2 usage or I/O error.
@@ -41,6 +44,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     let mut json = false;
     let mut out_path: Option<String> = None;
     let mut data_path: Option<String> = None;
+    let mut ignore: Vec<String> = Vec::new();
     let mut positional = Vec::new();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
@@ -49,6 +53,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             "--data" => {
                 data_path = Some(iter.next().ok_or("`--data` needs a path")?.clone());
             }
+            "--ignore" => ignore.push(iter.next().ok_or("`--ignore` needs a path prefix")?.clone()),
             "-o" | "--output" => {
                 out_path = Some(iter.next().ok_or("`-o` needs a path")?.clone());
             }
@@ -60,6 +65,19 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
             flag if flag.starts_with('-') => return Err(format!("unknown option `{flag}`")),
             _ => positional.push(arg.as_str()),
         }
+    }
+    if positional.first() == Some(&"diff") {
+        let [_, left, right] = positional.as_slice() else {
+            print!("{USAGE}");
+            return Err("diff needs two files".to_owned());
+        };
+        let outcome = commands::diff(&read_input(left)?, &read_input(right)?, &ignore, json)?;
+        print!("{}", outcome.output);
+        return Ok(if outcome.identical {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::from(1)
+        });
     }
     let [command, file] = positional.as_slice() else {
         print!("{USAGE}");
@@ -86,6 +104,18 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
                 Some(path) => std::fs::write(&path, json).map_err(|e| format!("{path}: {e}"))?,
                 None => std::io::stdout()
                     .write_all(&json)
+                    .map_err(|e| format!("stdout: {e}"))?,
+            }
+        }
+        "redact" => {
+            let (redacted, audit) = commands::redact(&bytes)?;
+            eprintln!("redacted {} field(s): {}", audit.len(), audit.join(" "));
+            match out_path {
+                Some(path) => {
+                    std::fs::write(&path, redacted).map_err(|e| format!("{path}: {e}"))?
+                }
+                None => std::io::stdout()
+                    .write_all(&redacted)
                     .map_err(|e| format!("stdout: {e}"))?,
             }
         }

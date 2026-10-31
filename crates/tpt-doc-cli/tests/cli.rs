@@ -148,3 +148,82 @@ fn render_merges_json_data_into_the_template() {
     assert!(String::from_utf8_lossy(&missing.stderr).contains("missing field"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn redact_removes_patient_identifiers_and_audits_positions() {
+    let out = tpt(&[
+        "redact",
+        &fixture("tpt-doc-hl7v2/tests/fixtures/adt_a01.hl7"),
+    ]);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !text.contains("Smith") && !text.contains("12345"),
+        "{text:?}"
+    );
+    assert!(text.contains("PATIENT-1"), "{text:?}");
+    let audit = String::from_utf8_lossy(&out.stderr);
+    assert!(audit.contains("PID[2]-5"), "{audit}");
+    // The audit names positions, never values.
+    assert!(!audit.contains("Smith"));
+
+    let bad = tpt_stdin(&["redact", "-"], b"<h1>nope</h1>");
+    assert_eq!(bad.status.code(), Some(2));
+}
+
+#[test]
+fn redact_handles_fhir_bundles_and_keeps_them_valid() {
+    let out = tpt(&[
+        "redact",
+        &fixture("tpt-doc-fhir/tests/fixtures/patient_bundle.json"),
+    ]);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        !text.contains("Smith") && !text.contains("ABC1234"),
+        "{text}"
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Patient:Patient.name"));
+
+    // The de-identified bundle is still a bundle the CLI accepts and validates.
+    let again = tpt_stdin(&["validate", "-"], text.as_bytes());
+    assert_eq!(again.status.code(), Some(0), "{}", stdout(&again));
+}
+
+#[test]
+fn diff_reports_changed_paths_and_exit_codes() {
+    let a = fixture("tpt-doc-hl7v2/tests/fixtures/adt_a01.hl7");
+    let same = tpt(&["diff", &a, &a]);
+    assert_eq!(same.status.code(), Some(0));
+    assert!(same.stdout.is_empty());
+
+    let original = std::fs::read_to_string(&a).expect("fixture");
+    let changed = original.replace("Smith^John", "Smyth^John");
+    let dir = std::env::temp_dir().join(format!("tpt-diff-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let b = dir.join("b.hl7");
+    std::fs::write(&b, changed).expect("write");
+    let b = b.to_string_lossy().into_owned();
+
+    let out = tpt(&["diff", &a, &b]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stdout(&out).contains("PID[0]-5.1: Smith \u{2192} Smyth"),
+        "{}",
+        stdout(&out)
+    );
+
+    let json = tpt(&["diff", &a, &b, "--json"]);
+    let v: serde_json::Value = serde_json::from_slice(&json.stdout).expect("json");
+    assert_eq!(v["identical"], false);
+    assert_eq!(v["changes"][0]["path"], "PID[0]-5.1");
+
+    let ignored = tpt(&["diff", &a, &b, "--ignore", "PID"]);
+    assert_eq!(ignored.status.code(), Some(0));
+
+    // Different formats, or one argument, are usage errors.
+    let fhir = fixture("tpt-doc-fhir/tests/fixtures/patient_bundle.json");
+    assert_eq!(tpt(&["diff", &a, &fhir]).status.code(), Some(2));
+    assert_eq!(tpt(&["diff", &a]).status.code(), Some(2));
+    let _ = std::fs::remove_dir_all(&dir);
+}
