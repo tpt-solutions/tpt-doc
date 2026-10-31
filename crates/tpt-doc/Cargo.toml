@@ -26,6 +26,7 @@ tpt-doc-layout = { workspace = true, optional = true }
 # `ring` and `x509-parser` are only pulled in by the `sign` feature.
 tpt-doc-sign = { workspace = true, optional = true }
 tpt-doc-convert = { workspace = true, optional = true }
+tpt-doc-diff = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -41,12 +42,13 @@ ubl = ["dep:tpt-doc-ubl"]
 layout = ["pdf", "dep:tpt-doc-layout"]
 sign = ["pdf", "dep:tpt-doc-sign"]
 convert = ["hl7v2", "fhir", "dep:tpt-doc-convert"]
+diff = ["hl7v2", "edi", "spreadsheet", "word", "dep:tpt-doc-diff"]
 # UBL invoice embedded in a PDF (Factur-X / ZUGFeRD).
 facturx = ["ubl", "pdf", "tpt-doc-ubl/facturx"]
 # `Serialize`/`Deserialize` on structured validation reports.
 serde = ["tpt-doc-core/serde"]
 # Everything.
-full = ["pdf", "spreadsheet", "fhir", "edi", "hl7v2", "word", "ubl", "layout", "sign", "facturx", "convert", "serde"]
+full = ["pdf", "spreadsheet", "fhir", "edi", "hl7v2", "word", "ubl", "layout", "sign", "facturx", "convert", "diff", "serde"]
 
 [package.metadata.docs.rs]
 all-features = true

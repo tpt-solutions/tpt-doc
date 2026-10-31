@@ -16,6 +16,7 @@
 //! | `edi` | [`edi`] | `tpt-doc-edi` |
 //! | `ubl` | [`ubl`] | `tpt-doc-ubl` |
 //! | `convert` | [`convert`] | `tpt-doc-convert` (HL7 v2 → FHIR) |
+//! | `diff` | [`diff`] | `tpt-doc-diff` (structural diff) |
 //! | `facturx` | — | UBL invoice embedded in a PDF |
 //! | `serde` | — | serde support on validation reports |
 //! | `full` | — | everything |
@@ -39,6 +40,8 @@
 
 pub use tpt_doc_core as core;
 
+#[cfg(feature = "diff")]
+pub use tpt_doc_diff as diff;
 #[cfg(feature = "convert")]
 pub use tpt_doc_convert as convert;
 #[cfg(feature = "edi")]

@@ -1,0 +1,22 @@
+[package]
+name = "tpt-doc-diff"
+description = "Structural diff for HL7 v2, EDIFACT, X12, FHIR JSON, XLSX and DOCX with path-style output"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["diff", "hl7", "fhir", "edi", "compare"]
+categories = ["encoding", "parser-implementations"]
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-diff"
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+tpt-doc-hl7v2 = { workspace = true }
+tpt-doc-edi = { workspace = true }
+tpt-doc-spreadsheet = { workspace = true }
+tpt-doc-word = { workspace = true }
+serde_json = { workspace = true }

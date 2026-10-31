@@ -14,6 +14,7 @@ members = [
     "crates/tpt-doc",
     "crates/tpt-doc-cli",
     "crates/tpt-doc-convert",
+    "crates/tpt-doc-diff",
 ]
 
 [workspace.package]
@@ -54,6 +55,7 @@ tpt-doc-word   = { path = "crates/tpt-doc-word",   version = "0.1.0" }
 tpt-doc-ubl    = { path = "crates/tpt-doc-ubl",    version = "0.1.0" }
 tpt-doc-hl7v2  = { path = "crates/tpt-doc-hl7v2",  version = "0.1.0" }
 tpt-doc-convert = { path = "crates/tpt-doc-convert", version = "0.1.0" }
+tpt-doc-diff = { path = "crates/tpt-doc-diff", version = "0.1.0" }
 
 [profile.release]
 opt-level = 3
