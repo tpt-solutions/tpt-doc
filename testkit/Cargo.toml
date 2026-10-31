@@ -1,0 +1,19 @@
+[package]
+name = "tpt-doc-testkit"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Golden and fuzz tests for the tpt-doc parsers, built on tpt-testkit. Kept outside the workspace so published crates never see tpt-testkit."
+
+# Detached from the parent workspace on purpose (see the root `exclude`).
+[workspace]
+
+[dev-dependencies]
+tpt-doc-core = { path = "../crates/tpt-doc-core" }
+tpt-doc-edi = { path = "../crates/tpt-doc-edi" }
+tpt-doc-fhir = { path = "../crates/tpt-doc-fhir" }
+tpt-doc-hl7v2 = { path = "../crates/tpt-doc-hl7v2" }
+tpt-doc-spreadsheet = { path = "../crates/tpt-doc-spreadsheet" }
+tpt-doc-ubl = { path = "../crates/tpt-doc-ubl" }
+tpt-doc-word = { path = "../crates/tpt-doc-word" }
+tpt-testkit = { git = "https://github.com/tpt-solutions/tpt-testkit", branch = "master", features = ["fuzz"] }

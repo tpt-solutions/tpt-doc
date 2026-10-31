@@ -1,0 +1,4 @@
+Ok(Segment { tag: "MSH", fields: ["|", "^~\\&", "HIS", "ACME", "RIS", "ACME", "20261001120000", "", "ADT^A01", "MSG00001", "P", "2.5.1"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "EVN", fields: ["A01", "20261001120000"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "PID", fields: ["1", "", "12345^^^NZHPI^MR", "", "Smith^John", "", "19700101", "M"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })
+Ok(Segment { tag: "PV1", fields: ["1", "I", "WARD4^101^A"], delims: Delimiters { field: 124, component: 94, repeat: 126, escape: 92, subcomponent: 38 } })

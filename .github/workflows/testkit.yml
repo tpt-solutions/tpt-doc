@@ -1,0 +1,78 @@
+name: Testkit
+
+# Golden tests and in-process fuzzing built on tpt-testkit. The crate lives in `testkit/`, outside
+# the workspace, so the published crates never depend on tpt-testkit.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    name: Golden + short fuzz (${{ matrix.os }})
+    if: github.event_name != 'schedule'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: testkit
+      - run: cargo test --manifest-path testkit/Cargo.toml
+
+  fuzz:
+    name: Continuous fuzzing
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: testkit
+      # The corpus grows across runs: restore the most recent one, save a new one after each run.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/testkit/target/fuzz-corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-
+      - name: Fuzz every parser
+        env:
+          TPT_FUZZ_ITERATIONS: "300000"
+          TPT_FUZZ_SEED: ${{ github.run_number }}
+          TPT_FUZZ_CORPUS: ${{ github.workspace }}/testkit/target/fuzz-corpus
+          TPT_FUZZ_CRASHES: ${{ github.workspace }}/testkit/target/fuzz-crashes
+          TPT_FUZZ_REPORT: ${{ github.workspace }}/testkit/target/fuzz-report.json
+        run: cargo test --manifest-path testkit/Cargo.toml --test fuzz -- --nocapture
+      - name: Group crashes by signature
+        if: failure()
+        run: |
+          for r in testkit/target/fuzz-report-*.json; do
+            cargo run -q --git https://github.com/tpt-solutions/tpt-testkit tpt-testkit-cli -- crash-dedup --report "$r" || true
+          done
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: |
+            testkit/target/fuzz-crashes
+            testkit/target/fuzz-report-*.json
+          if-no-files-found: ignore
