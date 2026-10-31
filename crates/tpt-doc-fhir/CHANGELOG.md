@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `redact` module: Safe Harbor de-identification of FHIR JSON by element path (`redact`, `RedactionProfile`, `Rule`, `Action`), keeping `Patient/id` references and `fullUrl` consistent with the patient pseudonym.
+
 - `FhirValidationError::to_report` and `From<&FhirValidationError> for
   ValidationIssue`, converting the format-specific errors into the shared
   `tpt_doc_core::ValidationReport`. The JSON-pointer field path becomes a

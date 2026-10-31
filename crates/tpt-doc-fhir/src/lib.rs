@@ -32,6 +32,8 @@ pub mod observation;
 pub mod organization;
 /// The `Patient` resource and its type-state builder.
 pub mod patient;
+/// De-identification of FHIR JSON by element path (Safe Harbor profile).
+pub mod redact;
 /// Shared FHIR R5 data types.
 pub mod types;
 /// Cross-field validation returning structured reports.
