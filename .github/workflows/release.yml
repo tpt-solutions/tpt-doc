@@ -1,0 +1,59 @@
+name: Release
+
+# Publishes every crate to crates.io when a version tag such as `v0.1.0` is pushed.
+# Requires the CARGO_REGISTRY_TOKEN repository secret.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check-version:
+    name: Tag matches workspace version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare tag with Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$tag" != "$version" ]; then
+            echo "tag v$tag does not match workspace version $version" >&2
+            exit 1
+          fi
+
+  test:
+    name: Test before publishing
+    needs: check-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-features
+
+  publish:
+    name: Publish to crates.io
+    needs: test
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Dependency order: each crate is published after the crates it depends on.
+      # cargo waits for the index to update between publishes.
+      - name: Publish in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          for crate in \
+            tpt-doc-core \
+            tpt-doc-pdf tpt-doc-edi tpt-doc-fhir tpt-doc-hl7v2 tpt-doc-word tpt-doc-spreadsheet \
+            tpt-doc-layout tpt-doc-sign tpt-doc-ubl tpt-doc-convert tpt-doc-diff \
+            tpt-doc tpt-doc-cli; do
+            cargo publish --locked -p "$crate"
+          done
