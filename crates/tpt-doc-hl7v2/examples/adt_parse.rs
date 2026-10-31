@@ -5,7 +5,8 @@
 use tpt_doc_hl7v2::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let message = b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|MSG1|P|2.5.1\rPID|1||12345^^^ACME||Doe^Jane";
+    let message =
+        b"MSH|^~\\&|HIS|ACME|RIS|ACME|||ADT^A01|MSG1|P|2.5.1\rPID|1||12345^^^ACME||Doe^Jane";
     for segment in Hl7Parser::new(message) {
         let segment = segment?;
         println!("{}: {} fields", segment.tag(), segment.raw_fields().len());

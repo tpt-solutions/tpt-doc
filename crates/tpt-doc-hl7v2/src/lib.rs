@@ -23,6 +23,8 @@
 pub mod encode;
 /// Streaming HL7 v2.x message parser.
 pub mod parser;
+/// De-identification of messages (HIPAA Safe Harbor profile, custom rules).
+pub mod redact;
 /// Embedded v2.5.1 segment definitions and validation.
 pub mod schema;
 /// Borrowed segment type and delimiter definitions.

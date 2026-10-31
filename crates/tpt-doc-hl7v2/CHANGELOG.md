@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `redact` module: HIPAA Safe Harbor de-identification of HL7 v2 messages (`redact`, `RedactionProfile`, `Rule`, `Action`), with a per-field audit trail that never records values.
+
 - `Hl7Violation::to_report` and `From<&Hl7Violation> for ValidationIssue`,
   converting the format-specific violations into the shared
   `tpt_doc_core::ValidationReport`. The segment index becomes a
