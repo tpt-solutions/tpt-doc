@@ -34,7 +34,7 @@ rust-version = "1.88"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 quick-xml = { version = "0.42", features = ["serialize"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 csv = "1"
 memchr = "2"
 flate2 = "1"
