@@ -230,7 +230,7 @@
 - [ ] `templates/` gallery with sample data + expected output: NZ-style tax invoice (UBL+PDF), HL7 ADT→FHIR, 835 remittance parser, spreadsheet report, signed PDF contract
 - [x] MOSTLY DONE: `tpt-doc` facade crate (`crates/tpt-doc`) with per-format feature flags (`pdf`, `layout`, `sign`, `spreadsheet`, `word`, `fhir`, `hl7v2`, `edi`, `ubl`, `facturx`, `serde`, `full`), each re-exported as a module; `ring`/`x509-parser` are only built with `sign`. Every single-feature build checked. NOT DONE: a type-level unified prelude (names collide across formats, so the prelude is core types only), and making `zip`/`ring` optional *inside* their own crates.
 - [x] DONE: community files — `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue/PR templates, `CODEOWNERS`, dependabot.
-- [x] MOSTLY DONE (CI): MSRV (1.85) and separate doc-test jobs, `rust-toolchain.toml`, `.kilo/` ignored. NOT DONE: `cargo semver-checks`, run-examples job, `.devcontainer`, Dockerfile.
+- [x] MOSTLY DONE (CI): MSRV (1.88) and separate doc-test jobs, `rust-toolchain.toml`, `.kilo/` ignored. NOT DONE: `cargo semver-checks`, run-examples job, `.devcontainer`, Dockerfile.
 - [x] MOSTLY DONE: tag-triggered publish workflow (`.github/workflows/release.yml`: `v*.*.*` tag → tag/version check → `cargo test --workspace --all-features` → `cargo publish` in dependency order; needs the `CARGO_REGISTRY_TOKEN` secret). NOT YET EXERCISED by a real tag. NOT DONE: release-plz / changelog automation.
 - [ ] mdBook: tutorials, recipes, migration + compliance guides (NZISM, HIPC), error-handling guide, longer crate chapters
 - [ ] `cargo-fuzz` targets for hl7v2, edi, fhir JSON/XML, xlsx, docx, png/pdf; criterion benches to back performance claims

@@ -1,6 +1,6 @@
 # Contributing to tpt-doc
 
-Thanks for helping. The workspace is pure Rust (edition 2024, MSRV 1.85), dual licensed `MIT OR Apache-2.0`; contributions are accepted under the same terms.
+Thanks for helping. The workspace is pure Rust (edition 2024, MSRV 1.88), dual licensed `MIT OR Apache-2.0`; contributions are accepted under the same terms.
 
 ## Before you open a PR
 

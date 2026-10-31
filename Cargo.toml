@@ -27,7 +27,7 @@ repository = "https://github.com/tpt-solutions/tpt-doc"
 homepage = "https://github.com/tpt-solutions/tpt-doc"
 keywords = ["document", "pdf", "fhir", "edi", "enterprise"]
 categories = ["encoding", "parser-implementations"]
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 # Shared across multiple crates
