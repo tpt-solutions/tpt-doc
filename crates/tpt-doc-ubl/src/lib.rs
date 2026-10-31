@@ -46,7 +46,7 @@ pub use validate::{UblValidationError, validate};
 /// Convenience re-export for common imports.
 pub mod prelude {
     pub use super::{
-        Address, Decimal, Invoice, InvoiceLine, InvoiceTypeCode, LineTax, Money, Party, TaxCategory,
-        TaxSubtotal, UblValidationError, validate,
+        Address, Decimal, Invoice, InvoiceLine, InvoiceTypeCode, LineTax, Money, Party,
+        TaxCategory, TaxSubtotal, UblValidationError, validate,
     };
 }

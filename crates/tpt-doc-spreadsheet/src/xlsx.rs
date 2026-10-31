@@ -167,12 +167,16 @@ impl CellState {
                 let index = value.parse::<usize>().map_err(|_| {
                     DocError::invalid_format(format!("bad shared string index `{value}`"))
                 })?;
-                shared.get(index).cloned().map(Cell::String).ok_or_else(|| {
-                    DocError::invalid_format(format!(
-                        "shared string index {index} out of range ({} strings)",
-                        shared.len()
-                    ))
-                })?
+                shared
+                    .get(index)
+                    .cloned()
+                    .map(Cell::String)
+                    .ok_or_else(|| {
+                        DocError::invalid_format(format!(
+                            "shared string index {index} out of range ({} strings)",
+                            shared.len()
+                        ))
+                    })?
             }
             CellKind::Boolean => Cell::Boolean(value == "1" || value == "true"),
             CellKind::Error => Cell::Error(value),
@@ -416,10 +420,7 @@ fn read_entry(
 }
 
 /// Read an attribute (first match among `names`) from an element's start tag.
-fn attr_of(
-    e: &quick_xml::events::BytesStart<'_>,
-    names: &[&str],
-) -> Option<String> {
+fn attr_of(e: &quick_xml::events::BytesStart<'_>, names: &[&str]) -> Option<String> {
     e.attributes()
         .filter_map(std::result::Result::ok)
         .find(|a| names.iter().any(|n| a.key.as_ref() == *n))

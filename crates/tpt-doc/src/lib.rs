@@ -40,10 +40,10 @@
 
 pub use tpt_doc_core as core;
 
-#[cfg(feature = "diff")]
-pub use tpt_doc_diff as diff;
 #[cfg(feature = "convert")]
 pub use tpt_doc_convert as convert;
+#[cfg(feature = "diff")]
+pub use tpt_doc_diff as diff;
 #[cfg(feature = "edi")]
 pub use tpt_doc_edi as edi;
 #[cfg(feature = "fhir")]
