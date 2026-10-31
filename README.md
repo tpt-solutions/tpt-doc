@@ -23,12 +23,20 @@ No shelling out to Python or Java. No C-FFI. No bloated dependency trees. 100% M
 | [`tpt-doc-layout`](crates/tpt-doc-layout) | Headless HTML/CSS-to-PDF layout engine | [![docs.rs](https://docs.rs/tpt-doc-layout/badge.svg)](https://docs.rs/tpt-doc-layout) | [CHANGELOG](crates/tpt-doc-layout/CHANGELOG.md) |
 | [`tpt-doc-word`](crates/tpt-doc-word) | Pure-Rust `.docx` (OOXML Word) generation and parsing | [![docs.rs](https://docs.rs/tpt-doc-word/badge.svg)](https://docs.rs/tpt-doc-word) | [CHANGELOG](crates/tpt-doc-word/CHANGELOG.md) |
 | [`tpt-doc-ubl`](crates/tpt-doc-ubl) | UBL 2.1/2.3 and PEPPOL BIS Billing 3.0 e-invoicing | [![docs.rs](https://docs.rs/tpt-doc-ubl/badge.svg)](https://docs.rs/tpt-doc-ubl) | [CHANGELOG](crates/tpt-doc-ubl/CHANGELOG.md) |
+| [`tpt-doc-hl7v2`](crates/tpt-doc-hl7v2) | Streaming HL7 v2.x message parser and encoder | [![docs.rs](https://docs.rs/tpt-doc-hl7v2/badge.svg)](https://docs.rs/tpt-doc-hl7v2) | [CHANGELOG](crates/tpt-doc-hl7v2/CHANGELOG.md) |
+| [`tpt-doc-diff`](crates/tpt-doc-diff) | Structural diff for HL7 v2, EDIFACT, X12, FHIR JSON, XLSX and DOCX, reported by path | [![docs.rs](https://docs.rs/tpt-doc-diff/badge.svg)](https://docs.rs/tpt-doc-diff) | — |
 
 Prefer a single dependency? [`tpt-doc`](crates/tpt-doc) re-exports every crate behind per-format feature flags (`features = ["fhir", "hl7v2"]`, or `full`).
 
 Converters: [`tpt-doc-convert`](crates/tpt-doc-convert) turns HL7 v2 ADT/ORU messages into FHIR R5 bundles.
 
-Command line: [`tpt`](crates/tpt-doc-cli) sniffs, inspects, validates and renders documents (`tpt validate invoice.xml --json`).
+Command line: [`tpt`](crates/tpt-doc-cli) sniffs, inspects, validates, renders, redacts, converts and diffs documents. Formats are detected from content, not file extension:
+
+```bash
+tpt validate invoice.xml --json      # CI-friendly validation report
+tpt convert adt.hl7 -o bundle.json   # HL7 v2 ADT/ORU to FHIR R5
+tpt diff before.hl7 after.hl7        # exit 1 when they differ
+```
 
 Each crate ships its own README with compiled examples and its own CHANGELOG.
 
