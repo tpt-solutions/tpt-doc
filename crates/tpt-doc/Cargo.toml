@@ -27,6 +27,8 @@ tpt-doc-layout = { workspace = true, optional = true }
 tpt-doc-sign = { workspace = true, optional = true }
 tpt-doc-convert = { workspace = true, optional = true }
 tpt-doc-diff = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+ring = { workspace = true, optional = true }
 
 [features]
 default = ["std"]
@@ -47,8 +49,10 @@ diff = ["hl7v2", "edi", "spreadsheet", "word", "dep:tpt-doc-diff"]
 facturx = ["ubl", "pdf", "tpt-doc-ubl/facturx"]
 # `Serialize`/`Deserialize` on structured validation reports.
 serde = ["tpt-doc-core/serde"]
+# JSON invoice in, signed Factur-X PDF out.
+pipeline = ["facturx", "sign", "dep:serde_json", "dep:ring"]
 # Everything.
-full = ["pdf", "spreadsheet", "fhir", "edi", "hl7v2", "word", "ubl", "layout", "sign", "facturx", "convert", "diff", "serde"]
+full = ["pdf", "spreadsheet", "fhir", "edi", "hl7v2", "word", "ubl", "layout", "sign", "facturx", "convert", "diff", "serde", "pipeline"]
 
 [package.metadata.docs.rs]
 all-features = true

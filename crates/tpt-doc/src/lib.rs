@@ -54,6 +54,8 @@ pub use tpt_doc_hl7v2 as hl7v2;
 pub use tpt_doc_layout as layout;
 #[cfg(feature = "pdf")]
 pub use tpt_doc_pdf as pdf;
+#[cfg(feature = "pipeline")]
+pub mod pipeline;
 #[cfg(feature = "sign")]
 pub use tpt_doc_sign as sign;
 #[cfg(feature = "spreadsheet")]
