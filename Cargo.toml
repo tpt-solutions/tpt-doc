@@ -38,7 +38,7 @@ rust-version = "1.88"
 [workspace.dependencies]
 # Shared across multiple crates
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["float_roundtrip"] }
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
 quick-xml = { version = "0.42", features = ["serialize"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 csv = "1"

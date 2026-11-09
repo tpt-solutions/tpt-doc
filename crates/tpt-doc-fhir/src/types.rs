@@ -138,19 +138,87 @@ impl Period {
 }
 
 /// A measured or stated amount (`Quantity` datatype).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// `value` is the number. `value_text` is the decimal exactly as it was read
+/// (or as the caller wrote it), so that FHIR's decimal precision survives: `5.40`
+/// and `5.4` are the same number but say different things about precision. JSON
+/// output writes `value_text` when it is present, and XML output writes it as
+/// the `value` attribute.
+#[derive(Debug, Clone)]
 pub struct Quantity {
     /// The numerical value.
     pub value: f64,
+    /// The decimal as written, when it came from a document.
+    pub value_text: Option<String>,
     /// Human-readable unit (e.g. `"mg"`).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
     /// URI of the unit code system (e.g. UCUM).
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
     /// The unit as a code in `system`.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+}
+
+/// Two quantities are equal when they have the same number, unit and code.
+/// Their decimal text is compared only when both carry it: a quantity built in
+/// code has no text, and it equals the same quantity read back.
+impl PartialEq for Quantity {
+    fn eq(&self, other: &Self) -> bool {
+        let text_agrees = match (&self.value_text, &other.value_text) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        };
+        self.value == other.value
+            && text_agrees
+            && self.unit == other.unit
+            && self.system == other.system
+            && self.code == other.code
+    }
+}
+
+/// The JSON form: `value` is a JSON number, written with its original digits
+/// when they are known.
+#[derive(Serialize, Deserialize)]
+struct QuantityWire {
+    value: Box<serde_json::value::RawValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    code: Option<String>,
+}
+
+impl Serialize for Quantity {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let text = match &self.value_text {
+            Some(text) => text.clone(),
+            None => serde_json::to_string(&self.value).map_err(serde::ser::Error::custom)?,
+        };
+        let value =
+            serde_json::value::RawValue::from_string(text).map_err(serde::ser::Error::custom)?;
+        QuantityWire {
+            value,
+            unit: self.unit.clone(),
+            system: self.system.clone(),
+            code: self.code.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Quantity {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = QuantityWire::deserialize(deserializer)?;
+        let text = wire.value.get().to_owned();
+        let value: f64 = serde_json::from_str(&text).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            value,
+            value_text: Some(text),
+            unit: wire.unit,
+            system: wire.system,
+            code: wire.code,
+        })
+    }
 }
 
 impl Quantity {
@@ -159,6 +227,7 @@ impl Quantity {
     pub fn new(value: f64, unit: impl Into<String>) -> Self {
         Self {
             value,
+            value_text: None,
             unit: Some(unit.into()),
             system: None,
             code: None,

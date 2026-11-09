@@ -115,9 +115,12 @@ impl Observation {
     /// The measured value formatted as `"72.5 kg"`, when present.
     #[must_use]
     pub fn value_text(&self) -> Option<String> {
-        self.value_quantity.as_ref().map(|q| match &q.unit {
-            Some(unit) => format!("{} {unit}", q.value),
-            None => q.value.to_string(),
+        self.value_quantity.as_ref().map(|q| {
+            let number = q.value_text.clone().unwrap_or_else(|| q.value.to_string());
+            match &q.unit {
+                Some(unit) => format!("{number} {unit}"),
+                None => number,
+            }
         })
     }
 
@@ -277,6 +280,7 @@ impl ObservationDraft {
             ["Observation", "valueQuantity"] => {
                 self.current_quantity = Some(Quantity {
                     value: 0.0,
+                    value_text: None,
                     unit: None,
                     system: None,
                     code: None,
@@ -289,6 +293,7 @@ impl ObservationDraft {
                     .map_err(|_| err(format!("non-numeric quantity `{attr}`")))?;
                 if let Some(quantity) = &mut self.current_quantity {
                     quantity.value = number;
+                    quantity.value_text = Some(attr);
                 }
             }
             ["Observation", "valueQuantity", "unit"] => {
@@ -384,7 +389,11 @@ fn write_reference(xml: &mut String, reference: &Reference) -> Result<(), FhirVa
 
 /// Serialize a `Quantity`'s children inside an open `valueQuantity` element.
 fn write_quantity(xml: &mut String, quantity: &Quantity) -> Result<(), FhirValidationError> {
-    xml::value_element(xml, "value", &quantity.value.to_string())?;
+    let number = quantity
+        .value_text
+        .clone()
+        .unwrap_or_else(|| quantity.value.to_string());
+    xml::value_element(xml, "value", &number)?;
     if let Some(unit) = &quantity.unit {
         xml::value_element(xml, "unit", unit)?;
     }
