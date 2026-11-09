@@ -22,6 +22,8 @@
 # Guides
 
 - [Error handling](guides/errors.md)
+- [Recipes](guides/recipes.md)
+- [Tutorial: invoice to signed Factur-X](guides/invoice-pipeline.md)
 
 # Reference
 
