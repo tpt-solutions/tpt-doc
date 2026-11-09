@@ -15,6 +15,7 @@ members = [
     "crates/tpt-doc",
     "crates/tpt-doc-cli",
     "crates/tpt-doc-ooxml",
+    "crates/tpt-doc-audit",
     "crates/tpt-doc-convert",
     "crates/tpt-doc-diff",
 ]
@@ -59,6 +60,7 @@ tpt-doc-hl7v2  = { path = "crates/tpt-doc-hl7v2",  version = "0.1.0" }
 tpt-doc-convert = { path = "crates/tpt-doc-convert", version = "0.1.0" }
 tpt-doc-diff = { path = "crates/tpt-doc-diff", version = "0.1.0" }
 tpt-doc-ooxml = { path = "crates/tpt-doc-ooxml", version = "0.1.0" }
+tpt-doc-audit = { path = "crates/tpt-doc-audit", version = "0.1.0" }
 
 [profile.release]
 opt-level = 3

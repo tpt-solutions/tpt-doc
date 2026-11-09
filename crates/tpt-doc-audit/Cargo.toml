@@ -1,0 +1,22 @@
+[package]
+name = "tpt-doc-audit"
+description = "Tamper-evident audit log: a SHA-256 hash chain over events, with the head sealed by a CAdES signature"
+keywords = ["audit", "hash-chain", "provenance", "signature", "compliance"]
+categories = ["cryptography", "data-structures"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+tpt-doc-sign = { workspace = true }
+ring = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+ring = { workspace = true }
