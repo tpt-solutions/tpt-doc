@@ -1,0 +1,46 @@
+{
+  "entry": [
+    {
+      "resource": {
+        "birthDate": "1970-01-01",
+        "gender": "male",
+        "id": "12345",
+        "identifier": [
+          {
+            "system": "urn:hl7v2:NZHPI",
+            "value": "12345"
+          }
+        ],
+        "name": [
+          {
+            "family": "Smith",
+            "given": [
+              "John"
+            ]
+          }
+        ],
+        "resourceType": "Patient"
+      }
+    },
+    {
+      "resource": {
+        "class": {
+          "code": "IMP",
+          "display": "inpatient encounter",
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode"
+        },
+        "id": "MSG00001-enc",
+        "period": {
+          "start": "2026-10-01"
+        },
+        "resourceType": "Encounter",
+        "status": "inprogress",
+        "subject": {
+          "reference": "Patient/12345"
+        }
+      }
+    }
+  ],
+  "resourceType": "Bundle",
+  "type": "collection"
+}

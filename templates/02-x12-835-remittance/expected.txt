@@ -1,0 +1,3 @@
+total payment 1000
+claim CLP0001 status 1 billed 500 paid 450
+  service HC:99213

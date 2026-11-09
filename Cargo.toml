@@ -17,6 +17,7 @@ members = [
     "crates/tpt-doc-mcp",
     "crates/tpt-doc-ooxml",
     "crates/tpt-doc-audit",
+    "crates/tpt-doc-templates",
     "crates/tpt-doc-convert",
     "crates/tpt-doc-diff",
 ]

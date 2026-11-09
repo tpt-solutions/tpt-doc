@@ -1,0 +1,24 @@
+[package]
+name = "tpt-doc-templates"
+description = "Worked examples of tpt-doc end to end, checked against golden outputs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dev-dependencies]
+ring = { workspace = true }
+tpt-doc-core = { workspace = true }
+tpt-doc-convert = { workspace = true }
+tpt-doc-edi = { workspace = true }
+tpt-doc-fhir = { workspace = true }
+tpt-doc-hl7v2 = { workspace = true }
+tpt-doc-layout = { workspace = true }
+tpt-doc-pdf = { workspace = true }
+tpt-doc-sign = { workspace = true }
+tpt-doc-spreadsheet = { workspace = true }
+tpt-doc-ubl = { workspace = true, features = ["facturx"] }
