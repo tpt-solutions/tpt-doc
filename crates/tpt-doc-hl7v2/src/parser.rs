@@ -160,7 +160,14 @@ impl<'a> Hl7Parser<'a> {
 
             let fields: Vec<&str> = if tag == "MSH" {
                 // Preserve standard MSH numbering: MSH-1 is the field separator.
-                let Ok(sep_field) = core::str::from_utf8(&seg_bytes[3..4]) else {
+                // A bare `MSH` has no field separator after it; that is an error,
+                // not an index panic.
+                let Some(sep_bytes) = seg_bytes.get(3..4) else {
+                    return Some(Err(DocError::invalid_format(
+                        "MSH segment has no field separator",
+                    )));
+                };
+                let Ok(sep_field) = core::str::from_utf8(sep_bytes) else {
                     return Some(Err(DocError::invalid_format(
                         "MSH-1 is not a valid UTF-8 character",
                     )));
