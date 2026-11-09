@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 use tpt_doc_core::{DocError, Location};
 use tpt_doc_sign::PrivateKey;
 
+pub mod export;
+
 /// The previous-hash value of the first entry: 64 hex zeros.
 pub const GENESIS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 

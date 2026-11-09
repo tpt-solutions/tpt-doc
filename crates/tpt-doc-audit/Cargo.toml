@@ -13,6 +13,7 @@ rust-version.workspace = true
 
 [dependencies]
 tpt-doc-core = { workspace = true }
+tpt-doc-pdf = { workspace = true }
 tpt-doc-sign = { workspace = true }
 ring = { workspace = true }
 serde = { workspace = true }
