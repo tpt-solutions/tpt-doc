@@ -113,25 +113,24 @@ pub fn validate_observation(observation: &Observation) -> ValidationReport {
 #[must_use]
 pub fn validate_encounter(encounter: &Encounter) -> ValidationReport {
     let mut report = ValidationReport::default();
-    if let Some(period) = &encounter.period {
-        if let (Some(start), Some(end)) = (&period.start, &period.end) {
-            if let (Ok(start_date), Ok(end_date)) = (
-                time::Date::parse(
-                    start,
-                    &time::format_description::well_known::Iso8601::DEFAULT,
-                ),
-                time::Date::parse(end, &time::format_description::well_known::Iso8601::DEFAULT),
-            ) && end_date < start_date
-            {
-                report.push_issue(
-                    ValidationIssue::new(
-                        "/period/end",
-                        format!("period end `{end}` is before period start `{start}`"),
-                    )
-                    .with_rule("enc-3"),
-                );
-            }
-        }
+    if let Some(period) = &encounter.period
+        && let (Some(start), Some(end)) = (&period.start, &period.end)
+        && let (Ok(start_date), Ok(end_date)) = (
+            time::Date::parse(
+                start,
+                &time::format_description::well_known::Iso8601::DEFAULT,
+            ),
+            time::Date::parse(end, &time::format_description::well_known::Iso8601::DEFAULT),
+        )
+        && end_date < start_date
+    {
+        report.push_issue(
+            ValidationIssue::new(
+                "/period/end",
+                format!("period end `{end}` is before period start `{start}`"),
+            )
+            .with_rule("enc-3"),
+        );
     }
     if encounter.status == EncounterStatus::Finished
         && encounter.period.as_ref().is_none_or(|p| p.end.is_none())

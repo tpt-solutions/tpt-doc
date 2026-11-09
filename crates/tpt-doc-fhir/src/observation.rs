@@ -131,8 +131,11 @@ impl Observation {
     /// # Errors
     /// Returns an error if the bytes are not valid FHIR Observation JSON.
     pub fn from_json(bytes: &[u8]) -> Result<Self, FhirValidationError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| FhirValidationError::new("/", format!("JSON deserialization failed: {e}")))
+        let resource: Self = serde_json::from_slice(bytes).map_err(|e| {
+            FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
+        })?;
+        crate::types::check_resource_type(&resource.resource_type, "Observation")?;
+        Ok(resource)
     }
 
     /// Serialize to FHIR-compliant XML bytes.
@@ -185,170 +188,139 @@ impl Observation {
     /// document, a mandatory element is missing, or the document nests deeper
     /// than `limits.max_xml_depth`.
     pub fn from_xml_with_limits(bytes: &[u8], limits: Limits) -> Result<Self, FhirValidationError> {
-        let mut reader = quick_xml::Reader::from_reader(bytes);
-        let mut fields = ObservationFields::default();
-        let mut depth = 0usize;
-        loop {
-            match reader.read_event() {
-                Ok(quick_xml::events::Event::Start(start)) => {
-                    depth += 1;
-                    limits
-                        .check_xml_depth(depth)
-                        .map_err(|e| FhirValidationError::new("/f:Observation", e.to_string()))?;
-                    fields.enter(&start)?;
-                }
-                Ok(quick_xml::events::Event::Empty(start)) => fields.apply_empty(&start)?,
-                Ok(quick_xml::events::Event::End(end)) => {
-                    depth = depth.saturating_sub(1);
-                    fields.exit(end.local_name().as_ref());
-                }
-                Ok(quick_xml::events::Event::Eof) => break,
-                Ok(_) => {}
-                Err(e) => {
-                    return Err(FhirValidationError::new(
-                        "/f:Observation",
-                        format!("XML error: {e}"),
-                    ));
-                }
-            }
-        }
-        fields.into_observation()
+        let mut draft = ObservationDraft::default();
+        crate::xml::read_resource(bytes, &limits, "Observation", &mut draft)?;
+        draft.finish()
     }
 }
 
-/// Scratch state accumulated while parsing an `<Observation>` document.
+/// Values collected while reading an `Observation`, filled from the elements
+/// that define them at their documented position in the resource.
 #[derive(Debug, Default)]
-struct ObservationFields {
+struct ObservationDraft {
     id: String,
     status: Option<ObservationStatus>,
     code: CodeableConcept,
     subject: Option<Reference>,
     value_quantity: Option<Quantity>,
     effective: Option<String>,
-    in_code: bool,
-    in_subject: bool,
-    in_quantity: bool,
+    current_coding: Option<crate::Coding>,
+    current_subject: Option<Reference>,
+    current_quantity: Option<Quantity>,
 }
 
-impl ObservationFields {
-    fn enter(
+impl ObservationDraft {
+    /// Apply an element's attributes at its position in the resource.
+    fn apply(
         &mut self,
+        path: &[String],
         start: &quick_xml::events::BytesStart<'_>,
+        err: &impl Fn(String) -> FhirValidationError,
     ) -> Result<(), FhirValidationError> {
-        let name = start.local_name().as_ref().to_owned();
-        match name.as_str() {
-            "Observation" | "coding" => {}
-            "code" => self.in_code = true,
-            "subject" => {
-                self.in_subject = true;
-                self.subject = Some(Reference {
-                    reference: None,
-                    display: None,
-                });
-            }
-            "valueQuantity" => {
-                self.in_quantity = true;
-                self.value_quantity = Some(Quantity {
-                    value: 0.0,
-                    unit: None,
-                    system: None,
-                    code: None,
-                });
-            }
-            other => {
-                return Err(FhirValidationError::new(
-                    "/f:Observation",
-                    format!("unexpected element `{other}`"),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn exit(&mut self, name: &str) {
-        match name {
-            "code" => self.in_code = false,
-            "subject" => self.in_subject = false,
-            "valueQuantity" => self.in_quantity = false,
-            _ => {}
-        }
-    }
-
-    fn apply_empty(
-        &mut self,
-        start: &quick_xml::events::BytesStart<'_>,
-    ) -> Result<(), FhirValidationError> {
-        let name = start.local_name().as_ref().to_owned();
-        let value = || xml::attr_value(start, "value").unwrap_or_default();
-        let err = |msg: String| FhirValidationError::new("/f:Observation", msg);
-        match name.as_str() {
-            "id" => self.id = value(),
-            "status" => {
+        let value = || crate::xml::attr_value(start, "value").unwrap_or_default();
+        match path_refs(path).as_slice() {
+            ["Observation", "id"] => self.id = value(),
+            ["Observation", "status"] => {
                 let code = value();
                 self.status = Some(
                     ObservationStatus::from_code(&code)
                         .ok_or_else(|| err(format!("unknown status code `{code}`")))?,
                 );
             }
-            "text" if self.in_code => self.code.text = Some(value()),
-            "system" | "code" | "display" if self.in_code => {
-                let value = value();
-                if self.code.coding.is_empty() {
-                    self.code.coding.push(crate::Coding {
-                        system: None,
-                        code: String::new(),
-                        display: None,
-                    });
-                }
-                if let Some(coding) = self.code.coding.last_mut() {
-                    match name.as_str() {
-                        "system" => coding.system = Some(value),
-                        "code" => coding.code = value,
-                        "display" => coding.display = Some(value),
-                        _ => {}
-                    }
+            ["Observation", "effectiveDateTime"] => self.effective = Some(value()),
+            ["Observation", "code", "text"] => self.code.text = Some(value()),
+            ["Observation", "code", "coding"] => {
+                self.current_coding = Some(crate::Coding {
+                    system: None,
+                    code: String::new(),
+                    display: None,
+                });
+            }
+            ["Observation", "code", "coding", "system"] => {
+                if let Some(coding) = &mut self.current_coding {
+                    coding.system = Some(value());
                 }
             }
-            "reference" | "display" if self.in_subject => {
-                let value = value();
-                if let Some(reference) = self.subject.as_mut() {
-                    if name == "reference" {
-                        reference.reference = Some(value);
-                    } else {
-                        reference.display = Some(value);
-                    }
+            ["Observation", "code", "coding", "code"] => {
+                if let Some(coding) = &mut self.current_coding {
+                    coding.code = value();
                 }
             }
-            "value" | "unit" if self.in_quantity => {
+            ["Observation", "code", "coding", "display"] => {
+                if let Some(coding) = &mut self.current_coding {
+                    coding.display = Some(value());
+                }
+            }
+            ["Observation", "subject"] => {
+                self.current_subject = Some(Reference {
+                    reference: None,
+                    display: None,
+                });
+            }
+            ["Observation", "subject", "reference"] => {
+                if let Some(subject) = &mut self.current_subject {
+                    subject.reference = Some(value());
+                }
+            }
+            ["Observation", "subject", "display"] => {
+                if let Some(subject) = &mut self.current_subject {
+                    subject.display = Some(value());
+                }
+            }
+            ["Observation", "valueQuantity"] => {
+                self.current_quantity = Some(Quantity {
+                    value: 0.0,
+                    unit: None,
+                    system: None,
+                    code: None,
+                });
+            }
+            ["Observation", "valueQuantity", "value"] => {
                 let attr = value();
-                if let Some(quantity) = self.value_quantity.as_mut() {
-                    match name.as_str() {
-                        "value" => {
-                            quantity.value = attr
-                                .parse::<f64>()
-                                .map_err(|_| err(format!("non-numeric quantity `{attr}`")))?;
-                        }
-                        _ => quantity.unit = Some(attr),
-                    }
+                let number = attr
+                    .parse::<f64>()
+                    .map_err(|_| err(format!("non-numeric quantity `{attr}`")))?;
+                if let Some(quantity) = &mut self.current_quantity {
+                    quantity.value = number;
                 }
             }
-            "system" | "code" if self.in_quantity => {
-                let attr = value();
-                if let Some(quantity) = self.value_quantity.as_mut() {
-                    if name == "system" {
-                        quantity.system = Some(attr);
-                    } else {
-                        quantity.code = Some(attr);
-                    }
+            ["Observation", "valueQuantity", "unit"] => {
+                if let Some(quantity) = &mut self.current_quantity {
+                    quantity.unit = Some(value());
                 }
             }
-            "effectiveDateTime" => self.effective = Some(value()),
+            ["Observation", "valueQuantity", "system"] => {
+                if let Some(quantity) = &mut self.current_quantity {
+                    quantity.system = Some(value());
+                }
+            }
+            ["Observation", "valueQuantity", "code"] => {
+                if let Some(quantity) = &mut self.current_quantity {
+                    quantity.code = Some(value());
+                }
+            }
             _ => {}
         }
         Ok(())
     }
 
-    fn into_observation(self) -> Result<Observation, FhirValidationError> {
+    /// Commit a repeating or nested element when its end is reached.
+    fn end(&mut self, path: &[String]) {
+        match path_refs(path).as_slice() {
+            ["Observation", "code", "coding"] => {
+                self.code.coding.extend(self.current_coding.take());
+            }
+            ["Observation", "subject"] => {
+                self.subject = self.current_subject.take();
+            }
+            ["Observation", "valueQuantity"] => {
+                self.value_quantity = self.current_quantity.take();
+            }
+            _ => {}
+        }
+    }
+
+    fn finish(self) -> Result<Observation, FhirValidationError> {
         let status = self.status.ok_or_else(|| {
             FhirValidationError::new(
                 "/f:Observation",
@@ -365,6 +337,11 @@ impl ObservationFields {
             effective_date_time: self.effective,
         })
     }
+}
+
+/// Borrow a path of owned element names as `&str`s for matching.
+fn path_refs(path: &[String]) -> Vec<&str> {
+    path.iter().map(String::as_str).collect()
 }
 
 /// Serialize a `CodeableConcept`'s children inside an open `<code>` element.
@@ -544,6 +521,21 @@ impl ObservationBuilder<Set<ObservationStatus>, Set<CodeableConcept>> {
             value_quantity: self.value_quantity,
             effective_date_time: self.effective_date_time,
         }
+    }
+}
+
+impl crate::xml::DraftReader for ObservationDraft {
+    fn open(
+        &mut self,
+        path: &[String],
+        start: &quick_xml::events::BytesStart<'_>,
+    ) -> Result<(), FhirValidationError> {
+        let err = |msg: String| FhirValidationError::new("/f:Observation", msg);
+        self.apply(path, start, &err)
+    }
+
+    fn close(&mut self, path: &[String]) {
+        self.end(path);
     }
 }
 

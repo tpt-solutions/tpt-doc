@@ -165,3 +165,17 @@ impl Quantity {
         }
     }
 }
+
+/// Check that a parsed JSON resource declares the type it is read as.
+pub(crate) fn check_resource_type(
+    actual: &str,
+    expected: &str,
+) -> Result<(), crate::validate::FhirValidationError> {
+    if actual == expected {
+        return Ok(());
+    }
+    Err(crate::validate::FhirValidationError::new(
+        "/resourceType",
+        format!("expected `resourceType: \"{expected}\"`, found `{actual}`"),
+    ))
+}

@@ -34,6 +34,8 @@ pub mod organization;
 pub mod patient;
 /// De-identification of FHIR JSON by element path (Safe Harbor profile).
 pub mod redact;
+/// Implementations of the shared `tpt-doc-core` traits for the resources.
+pub mod traits;
 /// Shared FHIR R5 data types.
 pub mod types;
 /// Cross-field validation returning structured reports.

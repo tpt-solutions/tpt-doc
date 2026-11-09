@@ -47,8 +47,11 @@ impl Organization {
     /// # Errors
     /// Returns an error if the bytes are not valid FHIR Organization JSON.
     pub fn from_json(bytes: &[u8]) -> Result<Self, FhirValidationError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| FhirValidationError::new("/", format!("JSON deserialization failed: {e}")))
+        let resource: Self = serde_json::from_slice(bytes).map_err(|e| {
+            FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
+        })?;
+        crate::types::check_resource_type(&resource.resource_type, "Organization")?;
+        Ok(resource)
     }
 }
 
@@ -132,5 +135,106 @@ mod tests {
             .build();
         let restored = Organization::from_json(&org.to_json().expect("json")).expect("parse");
         assert_eq!(org, restored);
+    }
+}
+
+impl Organization {
+    /// Serialize to FHIR XML bytes.
+    ///
+    /// # Errors
+    /// Returns an error if a value contains a character XML cannot represent.
+    pub fn to_xml(&self) -> Result<Vec<u8>, FhirValidationError> {
+        use std::fmt::Write as _;
+
+        let mut xml = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+        let _ = write!(xml, r#"<Organization xmlns="{}">"#, crate::xml::FHIR_NS);
+        crate::xml::value_element(&mut xml, "id", &self.id)?;
+        if let Some(active) = self.active {
+            let text = if active { "true" } else { "false" };
+            crate::xml::value_element(&mut xml, "active", text)?;
+        }
+        crate::xml::value_element(&mut xml, "name", &self.name)?;
+        crate::xml::close_element(&mut xml, "Organization");
+        Ok(xml.into_bytes())
+    }
+
+    /// Deserialize from FHIR XML bytes.
+    ///
+    /// # Errors
+    /// Returns an error if the bytes are not a valid FHIR Organization
+    /// document, `active` is not a boolean, or `name` is missing.
+    pub fn from_xml(bytes: &[u8]) -> Result<Self, FhirValidationError> {
+        Self::from_xml_with_limits(bytes, tpt_doc_core::Limits::default())
+    }
+
+    /// Deserialize from FHIR XML bytes with explicit limits applied.
+    ///
+    /// # Errors
+    /// As [`Organization::from_xml`], and if the document nests deeper than
+    /// `limits.max_xml_depth`.
+    pub fn from_xml_with_limits(
+        bytes: &[u8],
+        limits: tpt_doc_core::Limits,
+    ) -> Result<Self, FhirValidationError> {
+        let mut draft = OrganizationDraft::default();
+        crate::xml::read_resource(bytes, &limits, "Organization", &mut draft)?;
+        draft.finish()
+    }
+}
+
+/// Values collected while reading an `Organization`.
+#[derive(Default)]
+struct OrganizationDraft {
+    id: String,
+    active: Option<bool>,
+    name: Option<String>,
+}
+
+impl crate::xml::DraftReader for OrganizationDraft {
+    fn open(
+        &mut self,
+        path: &[String],
+        start: &quick_xml::events::BytesStart<'_>,
+    ) -> Result<(), FhirValidationError> {
+        use crate::xml::path_refs;
+
+        let value = || crate::xml::attr_value(start, "value").unwrap_or_default();
+        match path_refs(path).as_slice() {
+            ["Organization", "id"] => self.id = value(),
+            ["Organization", "active"] => {
+                self.active = Some(match value().as_str() {
+                    "true" => true,
+                    "false" => false,
+                    other => {
+                        return Err(FhirValidationError::new(
+                            "/f:Organization",
+                            format!("`active` must be true or false, found `{other}`"),
+                        ));
+                    }
+                });
+            }
+            ["Organization", "name"] => self.name = Some(value()),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn close(&mut self, _path: &[String]) {}
+}
+
+impl OrganizationDraft {
+    fn finish(self) -> Result<Organization, FhirValidationError> {
+        let name = self.name.ok_or_else(|| {
+            FhirValidationError::new(
+                "/f:Organization",
+                "missing mandatory element `name`".to_owned(),
+            )
+        })?;
+        Ok(Organization {
+            resource_type: "Organization".into(),
+            id: self.id,
+            active: self.active,
+            name,
+        })
     }
 }

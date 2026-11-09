@@ -103,8 +103,11 @@ impl Encounter {
     /// # Errors
     /// Returns an error if the bytes are not valid FHIR Encounter JSON.
     pub fn from_json(bytes: &[u8]) -> Result<Self, FhirValidationError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| FhirValidationError::new("/", format!("JSON deserialization failed: {e}")))
+        let resource: Self = serde_json::from_slice(bytes).map_err(|e| {
+            FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
+        })?;
+        crate::types::check_resource_type(&resource.resource_type, "Encounter")?;
+        Ok(resource)
     }
 }
 
@@ -280,5 +283,189 @@ mod tests {
             );
         }
         assert_eq!(EncounterStatus::from_code("bogus"), None);
+    }
+}
+
+impl Encounter {
+    /// Serialize to FHIR XML bytes.
+    ///
+    /// # Errors
+    /// Returns an error if a value contains a character XML cannot represent.
+    pub fn to_xml(&self) -> Result<Vec<u8>, FhirValidationError> {
+        use std::fmt::Write as _;
+
+        let mut xml = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+        let _ = write!(xml, r#"<Encounter xmlns="{}">"#, crate::xml::FHIR_NS);
+        crate::xml::value_element(&mut xml, "id", &self.id)?;
+        crate::xml::value_element(&mut xml, "status", self.status.code())?;
+        crate::xml::open_element(&mut xml, "class");
+        write_coding(&mut xml, &self.class)?;
+        crate::xml::close_element(&mut xml, "class");
+        if let Some(subject) = &self.subject {
+            crate::xml::open_element(&mut xml, "subject");
+            if let Some(reference) = &subject.reference {
+                crate::xml::value_element(&mut xml, "reference", reference)?;
+            }
+            if let Some(display) = &subject.display {
+                crate::xml::value_element(&mut xml, "display", display)?;
+            }
+            crate::xml::close_element(&mut xml, "subject");
+        }
+        if let Some(period) = &self.period {
+            crate::xml::open_element(&mut xml, "period");
+            if let Some(start) = &period.start {
+                crate::xml::value_element(&mut xml, "start", start)?;
+            }
+            if let Some(end) = &period.end {
+                crate::xml::value_element(&mut xml, "end", end)?;
+            }
+            crate::xml::close_element(&mut xml, "period");
+        }
+        crate::xml::close_element(&mut xml, "Encounter");
+        Ok(xml.into_bytes())
+    }
+
+    /// Deserialize from FHIR XML bytes.
+    ///
+    /// # Errors
+    /// Returns an error if the bytes are not a valid FHIR Encounter document
+    /// or a mandatory element (`status`, `class`) is missing.
+    pub fn from_xml(bytes: &[u8]) -> Result<Self, FhirValidationError> {
+        Self::from_xml_with_limits(bytes, tpt_doc_core::Limits::default())
+    }
+
+    /// Deserialize from FHIR XML bytes with explicit limits applied.
+    ///
+    /// # Errors
+    /// As [`Encounter::from_xml`], and if the document nests deeper than
+    /// `limits.max_xml_depth`.
+    pub fn from_xml_with_limits(
+        bytes: &[u8],
+        limits: tpt_doc_core::Limits,
+    ) -> Result<Self, FhirValidationError> {
+        let mut draft = EncounterDraft::default();
+        crate::xml::read_resource(bytes, &limits, "Encounter", &mut draft)?;
+        draft.finish()
+    }
+}
+
+fn write_coding(xml: &mut String, coding: &Coding) -> Result<(), FhirValidationError> {
+    if let Some(system) = &coding.system {
+        crate::xml::value_element(xml, "system", system)?;
+    }
+    crate::xml::value_element(xml, "code", &coding.code)?;
+    if let Some(display) = &coding.display {
+        crate::xml::value_element(xml, "display", display)?;
+    }
+    Ok(())
+}
+
+/// Values collected while reading an `Encounter`.
+#[derive(Default)]
+struct EncounterDraft {
+    id: String,
+    status: Option<EncounterStatus>,
+    class: Option<Coding>,
+    subject: Option<Reference>,
+    period: Option<Period>,
+}
+
+impl crate::xml::DraftReader for EncounterDraft {
+    fn open(
+        &mut self,
+        path: &[String],
+        start: &quick_xml::events::BytesStart<'_>,
+    ) -> Result<(), FhirValidationError> {
+        use crate::xml::path_refs;
+
+        let value = || crate::xml::attr_value(start, "value").unwrap_or_default();
+        let err = |msg: String| FhirValidationError::new("/f:Encounter", msg);
+        match path_refs(path).as_slice() {
+            ["Encounter", "id"] => self.id = value(),
+            ["Encounter", "status"] => {
+                let code = value();
+                self.status = Some(
+                    EncounterStatus::from_code(&code)
+                        .ok_or_else(|| err(format!("unknown status code `{code}`")))?,
+                );
+            }
+            ["Encounter", "class"] => {
+                self.class = Some(Coding {
+                    system: None,
+                    code: String::new(),
+                    display: None,
+                });
+            }
+            ["Encounter", "class", "system"] => {
+                if let Some(class) = &mut self.class {
+                    class.system = Some(value());
+                }
+            }
+            ["Encounter", "class", "code"] => {
+                if let Some(class) = &mut self.class {
+                    class.code = value();
+                }
+            }
+            ["Encounter", "class", "display"] => {
+                if let Some(class) = &mut self.class {
+                    class.display = Some(value());
+                }
+            }
+            ["Encounter", "subject"] => {
+                self.subject = Some(Reference {
+                    reference: None,
+                    display: None,
+                });
+            }
+            ["Encounter", "subject", "reference"] => {
+                if let Some(subject) = &mut self.subject {
+                    subject.reference = Some(value());
+                }
+            }
+            ["Encounter", "subject", "display"] => {
+                if let Some(subject) = &mut self.subject {
+                    subject.display = Some(value());
+                }
+            }
+            ["Encounter", "period"] => {
+                self.period = Some(Period {
+                    start: None,
+                    end: None,
+                });
+            }
+            ["Encounter", "period", "start"] => {
+                if let Some(period) = &mut self.period {
+                    period.start = Some(value());
+                }
+            }
+            ["Encounter", "period", "end"] => {
+                if let Some(period) = &mut self.period {
+                    period.end = Some(value());
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn close(&mut self, _path: &[String]) {}
+}
+
+impl EncounterDraft {
+    fn finish(self) -> Result<Encounter, FhirValidationError> {
+        let missing = |name: &str| {
+            FhirValidationError::new(
+                "/f:Encounter",
+                format!("missing mandatory element `{name}`"),
+            )
+        };
+        Ok(Encounter {
+            resource_type: "Encounter".into(),
+            id: self.id,
+            status: self.status.ok_or_else(|| missing("status"))?,
+            class: self.class.ok_or_else(|| missing("class"))?,
+            subject: self.subject,
+            period: self.period,
+        })
     }
 }

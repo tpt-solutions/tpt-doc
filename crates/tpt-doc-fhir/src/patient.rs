@@ -70,8 +70,11 @@ impl Patient {
     /// # Errors
     /// Returns an error if the bytes are not valid FHIR Patient JSON.
     pub fn from_json(bytes: &[u8]) -> Result<Self, FhirValidationError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| FhirValidationError::new("/", format!("JSON deserialization failed: {e}")))
+        let resource: Self = serde_json::from_slice(bytes).map_err(|e| {
+            FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
+        })?;
+        crate::types::check_resource_type(&resource.resource_type, "Patient")?;
+        Ok(resource)
     }
 
     /// Serialize to FHIR-compliant XML bytes.
@@ -136,106 +139,110 @@ impl Patient {
     /// Returns an error if the bytes are not a valid FHIR Patient XML document
     /// or exceed `limits.max_xml_depth`.
     pub fn from_xml_with_limits(bytes: &[u8], limits: Limits) -> Result<Self, FhirValidationError> {
-        use quick_xml::events::Event;
-
-        let mut reader = quick_xml::Reader::from_reader(bytes);
-        let mut depth = 0usize;
-        let mut id = String::new();
-        let mut names: Vec<HumanName> = Vec::new();
-        let mut identifiers: Vec<Identifier> = Vec::new();
-        let mut gender = None;
-        let mut birth_date = None;
-        let mut current_name = HumanName {
-            family: None,
-            given: Vec::new(),
-        };
-        let mut current_identifier = Identifier {
-            system: None,
-            value: String::new(),
-        };
-        let mut in_identifier = false;
-        let err = |msg: String| FhirValidationError::new("/f:Patient", msg);
-
-        loop {
-            match reader.read_event() {
-                Ok(Event::Start(start)) => {
-                    depth += 1;
-                    limits
-                        .check_xml_depth(depth)
-                        .map_err(|e| FhirValidationError::new("/f:Patient", e.to_string()))?;
-                    if crate::xml::is_element(&start, "name") {
-                        current_name = HumanName {
-                            family: None,
-                            given: Vec::new(),
-                        };
-                    } else if crate::xml::is_element(&start, "identifier") {
-                        current_identifier = Identifier {
-                            system: None,
-                            value: String::new(),
-                        };
-                        in_identifier = true;
-                    }
-                }
-                Ok(Event::Empty(start)) => {
-                    let value = || crate::xml::attr_value(&start, "value").unwrap_or_default();
-                    match start.local_name().as_ref() {
-                        "id" => id = value(),
-                        "family" => current_name.family = Some(value()),
-                        "given" => current_name.given.push(value()),
-                        "system" => current_identifier.system = Some(value()),
-                        "value" if in_identifier => current_identifier.value = value(),
-                        "gender" => {
-                            let code = value();
-                            gender = Some(match code.as_str() {
-                                "male" => Gender::Male,
-                                "female" => Gender::Female,
-                                "other" => Gender::Other,
-                                "unknown" => Gender::Unknown,
-                                other => return Err(err(format!("unknown gender `{other}`"))),
-                            });
-                        }
-                        "birthDate" => birth_date = Some(value()),
-                        _ => {}
-                    }
-                }
-                Ok(Event::End(end)) => {
-                    depth = depth.saturating_sub(1);
-                    match end.local_name().as_ref() {
-                        "name" => names.push(std::mem::replace(
-                            &mut current_name,
-                            HumanName {
-                                family: None,
-                                given: Vec::new(),
-                            },
-                        )),
-                        "identifier" => {
-                            in_identifier = false;
-                            identifiers.push(std::mem::replace(
-                                &mut current_identifier,
-                                Identifier {
-                                    system: None,
-                                    value: String::new(),
-                                },
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(Event::Eof) => break,
-                Ok(_) => {}
-                Err(e) => return Err(err(format!("XML error: {e}"))),
-            }
-        }
-
-        Ok(Patient {
-            resource_type: "Patient".into(),
-            id,
-            name: names,
-            identifier: identifiers,
-            gender,
-            birth_date,
-        })
+        let mut draft = PatientDraft::default();
+        crate::xml::read_resource(bytes, &limits, "Patient", &mut draft)?;
+        Ok(draft.finish())
     }
+}
+
+/// Values collected while reading a `Patient`, filled from the elements that
+/// define them at their documented position in the resource.
+#[derive(Default)]
+struct PatientDraft {
+    id: String,
+    names: Vec<HumanName>,
+    identifiers: Vec<Identifier>,
+    gender: Option<Gender>,
+    birth_date: Option<String>,
+    current_name: Option<HumanName>,
+    current_identifier: Option<Identifier>,
+}
+
+impl PatientDraft {
+    /// Apply an element's attributes at its position in the resource.
+    fn apply(
+        &mut self,
+        path: &[String],
+        start: &quick_xml::events::BytesStart<'_>,
+        err: &impl Fn(String) -> FhirValidationError,
+    ) -> Result<(), FhirValidationError> {
+        let value = || crate::xml::attr_value(start, "value").unwrap_or_default();
+        match path_refs(path).as_slice() {
+            ["Patient", "id"] => self.id = value(),
+            ["Patient", "name"] => {
+                self.current_name = Some(HumanName {
+                    family: None,
+                    given: Vec::new(),
+                });
+            }
+            ["Patient", "name", "family"] => {
+                if let Some(name) = &mut self.current_name {
+                    name.family = Some(value());
+                }
+            }
+            ["Patient", "name", "given"] => {
+                if let Some(name) = &mut self.current_name {
+                    name.given.push(value());
+                }
+            }
+            ["Patient", "identifier"] => {
+                self.current_identifier = Some(Identifier {
+                    system: None,
+                    value: String::new(),
+                });
+            }
+            ["Patient", "identifier", "system"] => {
+                if let Some(identifier) = &mut self.current_identifier {
+                    identifier.system = Some(value());
+                }
+            }
+            ["Patient", "identifier", "value"] => {
+                if let Some(identifier) = &mut self.current_identifier {
+                    identifier.value = value();
+                }
+            }
+            ["Patient", "gender"] => {
+                let code = value();
+                self.gender = Some(match code.as_str() {
+                    "male" => Gender::Male,
+                    "female" => Gender::Female,
+                    "other" => Gender::Other,
+                    "unknown" => Gender::Unknown,
+                    other => return Err(err(format!("unknown gender `{other}`"))),
+                });
+            }
+            ["Patient", "birthDate"] => self.birth_date = Some(value()),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Commit a repeating element when its end is reached.
+    fn end(&mut self, path: &[String]) {
+        match path_refs(path).as_slice() {
+            ["Patient", "name"] => self.names.extend(self.current_name.take()),
+            ["Patient", "identifier"] => {
+                self.identifiers.extend(self.current_identifier.take());
+            }
+            _ => {}
+        }
+    }
+
+    fn finish(self) -> Patient {
+        Patient {
+            resource_type: "Patient".into(),
+            id: self.id,
+            name: self.names,
+            identifier: self.identifiers,
+            gender: self.gender,
+            birth_date: self.birth_date,
+        }
+    }
+}
+
+/// Borrow a path of owned element names as `&str`s for matching.
+fn path_refs(path: &[String]) -> Vec<&str> {
+    path.iter().map(String::as_str).collect()
 }
 
 // --- Type-state builder ---
@@ -311,6 +318,21 @@ impl PatientBuilder<HasId> {
             gender: self.gender,
             birth_date: self.birth_date,
         }
+    }
+}
+
+impl crate::xml::DraftReader for PatientDraft {
+    fn open(
+        &mut self,
+        path: &[String],
+        start: &quick_xml::events::BytesStart<'_>,
+    ) -> Result<(), FhirValidationError> {
+        let err = |msg: String| FhirValidationError::new("/f:Patient", msg);
+        self.apply(path, start, &err)
+    }
+
+    fn close(&mut self, path: &[String]) {
+        self.end(path);
     }
 }
 
