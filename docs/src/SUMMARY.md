@@ -19,6 +19,10 @@
 - [tpt-doc-ubl](crates/ubl.md)
 - [tpt-doc-hl7v2](crates/hl7v2.md)
 
+# Guides
+
+- [Error handling](guides/errors.md)
+
 # Reference
 
 - [API Reference](api/index.html)
