@@ -32,7 +32,7 @@ pub mod table;
 mod traits;
 
 pub use document::{BodyElement, DocxDocument, DocxReader, DocxWriter};
-pub use paragraph::{Paragraph, Run, RunStyle};
+pub use paragraph::{ListKind, Paragraph, Run, RunStyle};
 pub use styles::BuiltinStyle;
 pub use table::{BorderStyle, Cell, Row, Table};
 

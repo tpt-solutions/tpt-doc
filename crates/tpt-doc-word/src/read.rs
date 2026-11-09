@@ -18,7 +18,7 @@ use tpt_doc_core::{DocError, Limits};
 
 use crate::DocxDocument;
 use crate::document::resolve_ref;
-use crate::paragraph::{Paragraph, Run, RunStyle};
+use crate::paragraph::{ListKind, Paragraph, Run, RunStyle};
 use crate::table::{BorderStyle, Cell, Row, Table};
 
 impl DocxDocument {
@@ -46,7 +46,10 @@ fn read_docx(bytes: &[u8], limits: &Limits) -> Result<DocxDocument, DocError> {
     let mut archive = tpt_doc_ooxml::open_archive(bytes)?;
     let document = tpt_doc_ooxml::read_part(&mut archive, "word/document.xml", limits)?;
     let tree = parse_tree(&document, limits)?;
-    let links = read_links(&mut archive, limits)?;
+    let refs = Refs {
+        links: read_links(&mut archive, limits)?,
+        lists: read_numbering(&mut archive, limits)?,
+    };
     let body = root(&tree)
         .and_then(|doc| doc.child("w:body"))
         .ok_or_else(|| DocError::invalid_format("word/document.xml has no w:body"))?;
@@ -54,8 +57,8 @@ fn read_docx(bytes: &[u8], limits: &Limits) -> Result<DocxDocument, DocError> {
     let mut out = DocxDocument::new();
     for element in &body.children {
         match element.name.as_str() {
-            "w:p" => out.push_paragraph(paragraph_from(element, &links)),
-            "w:tbl" => out.push_table(table_from(element, &links)),
+            "w:p" => out.push_paragraph(paragraph_from(element, &refs)),
+            "w:tbl" => out.push_table(table_from(element, &refs)),
             _ => {}
         }
     }
@@ -71,7 +74,7 @@ fn read_docx(bytes: &[u8], limits: &Limits) -> Result<DocxDocument, DocError> {
             let xml = tpt_doc_ooxml::read_part(&mut archive, part, limits)?;
             let tree = parse_tree(&xml, limits)?;
             if let Some(element) = root(&tree) {
-                set(&mut out, text_of_paragraphs(element, &HashMap::new()));
+                set(&mut out, text_of_paragraphs(element, &Refs::default()));
             }
         }
     }
@@ -183,6 +186,67 @@ fn element(start: &BytesStart<'_>) -> Result<Node, DocError> {
     })
 }
 
+/// What the document's relationships and numbering say about its paragraphs.
+#[derive(Default)]
+struct Refs {
+    /// External hyperlink targets, by relationship id.
+    links: HashMap<String, String>,
+    /// The kind of each list, by `numId`.
+    lists: HashMap<String, ListKind>,
+}
+
+/// The list kinds of the document, by `numId`, from `word/numbering.xml`.
+///
+/// A `num` points at an `abstractNum`; the kind comes from the number format of
+/// that abstract list's first level (`bullet` is a bulleted list, anything else
+/// is numbered).
+fn read_numbering(
+    archive: &mut zip::ZipArchive<std::io::Cursor<&[u8]>>,
+    limits: &Limits,
+) -> Result<HashMap<String, ListKind>, DocError> {
+    const PART: &str = "word/numbering.xml";
+    if archive.index_for_name(PART).is_none() {
+        return Ok(HashMap::new());
+    }
+    let xml = tpt_doc_ooxml::read_part(archive, PART, limits)?;
+    let tree = parse_tree(&xml, limits)?;
+    let Some(numbering) = root(&tree) else {
+        return Ok(HashMap::new());
+    };
+
+    let mut kinds: HashMap<String, ListKind> = HashMap::new();
+    for abstract_list in numbering.children_named("w:abstractNum") {
+        let Some(id) = abstract_list.attr("w:abstractNumId") else {
+            continue;
+        };
+        let format = abstract_list
+            .children_named("w:lvl")
+            .find(|lvl| lvl.attr("w:ilvl").is_none_or(|level| level == "0"))
+            .and_then(|lvl| lvl.child("w:numFmt"))
+            .and_then(|fmt| fmt.attr("w:val"));
+        let kind = if format == Some("bullet") {
+            ListKind::Bulleted
+        } else {
+            ListKind::Numbered
+        };
+        kinds.insert(id.to_owned(), kind);
+    }
+
+    let mut lists = HashMap::new();
+    for num in numbering.children_named("w:num") {
+        let (Some(num_id), Some(abstract_id)) = (
+            num.attr("w:numId"),
+            num.child("w:abstractNumId").and_then(|a| a.attr("w:val")),
+        ) else {
+            continue;
+        };
+        if let Some(kind) = kinds.get(abstract_id) {
+            lists.insert(num_id.to_owned(), *kind);
+        }
+    }
+    Ok(lists)
+}
+
 /// The external hyperlink targets of the document part, by relationship id.
 fn read_links(
     archive: &mut zip::ZipArchive<std::io::Cursor<&[u8]>>,
@@ -208,7 +272,7 @@ fn read_links(
     Ok(links)
 }
 
-fn paragraph_from(node: &Node, links: &HashMap<String, String>) -> Paragraph {
+fn paragraph_from(node: &Node, refs: &Refs) -> Paragraph {
     let style = node
         .child("w:pPr")
         .and_then(|props| props.child("w:pStyle"))
@@ -220,7 +284,7 @@ fn paragraph_from(node: &Node, links: &HashMap<String, String>) -> Paragraph {
             "w:r" => runs.push(run_from(child)),
             "w:hyperlink" => {
                 // A run inside a hyperlink keeps its target, when the target resolves.
-                let target = child.attr("r:id").and_then(|id| links.get(id));
+                let target = child.attr("r:id").and_then(|id| refs.links.get(id));
                 for run in child.children_named("w:r") {
                     let mut run = run_from(run);
                     run.link = target.cloned();
@@ -230,7 +294,14 @@ fn paragraph_from(node: &Node, links: &HashMap<String, String>) -> Paragraph {
             _ => {}
         }
     }
-    Paragraph::from_parts(style, runs)
+    let list = node
+        .child("w:pPr")
+        .and_then(|props| props.child("w:numPr"))
+        .and_then(|num| num.child("w:numId"))
+        .and_then(|id| id.attr("w:val"))
+        .and_then(|id| refs.lists.get(id))
+        .copied();
+    Paragraph::from_parts(style, list, runs)
 }
 
 fn run_from(node: &Node) -> Run {
@@ -267,7 +338,7 @@ fn run_style(run: &Node) -> RunStyle {
     }
 }
 
-fn table_from(node: &Node, links: &HashMap<String, String>) -> Table {
+fn table_from(node: &Node, refs: &Refs) -> Table {
     let mut table = Table::new();
     let props = node.child("w:tblPr");
     table.borders = table_borders(props);
@@ -285,7 +356,7 @@ fn table_from(node: &Node, links: &HashMap<String, String>) -> Table {
             .map(|cell| {
                 let paragraphs = cell
                     .children_named("w:p")
-                    .map(|p| paragraph_from(p, links))
+                    .map(|p| paragraph_from(p, refs))
                     .collect();
                 Cell::from_paragraphs(paragraphs)
             })
@@ -315,10 +386,10 @@ fn table_borders(props: Option<&Node>) -> BorderStyle {
 }
 
 /// The text of a header or footer: its paragraphs, joined by newlines.
-fn text_of_paragraphs(element: &Node, links: &HashMap<String, String>) -> String {
+fn text_of_paragraphs(element: &Node, refs: &Refs) -> String {
     let paragraphs: Vec<String> = element
         .children_named("w:p")
-        .map(|p| paragraph_from(p, links).plain_text())
+        .map(|p| paragraph_from(p, refs).plain_text())
         .collect();
     paragraphs.join("\n")
 }

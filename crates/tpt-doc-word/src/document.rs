@@ -8,6 +8,7 @@ use tpt_doc_core::Location;
 use tpt_doc_core::escape_xml_text;
 use tpt_doc_ooxml::{PackageWriter, XML_DECL, open_archive, read_part};
 
+use crate::paragraph::ListKind;
 use crate::styles::BuiltinStyle;
 use crate::table::BorderStyle;
 use crate::{Cell, Paragraph, Run, Table};
@@ -90,6 +91,7 @@ impl DocxWriter {
     /// # Errors
     /// Returns [`DocError`] if ZIP assembly or XML serialization fails.
     pub fn write(doc: &DocxDocument) -> Result<Vec<u8>, DocError> {
+        let uses_lists = document_has_lists(doc);
         let mut content_types = String::from(XML_DECL);
         content_types.push_str(
             r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">"#,
@@ -127,6 +129,11 @@ impl DocxWriter {
                 r#"<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>"#,
             );
         }
+        if uses_lists {
+            content_types.push_str(
+                r#"<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>"#,
+            );
+        }
         content_types.push_str("</Types>");
 
         let document = document_xml(doc)?;
@@ -142,34 +149,7 @@ impl DocxWriter {
 
         // Document-level relationships: styles (rId1), settings (rId2),
         // header (rId3), footer (rId4) — header/footer emitted only when set.
-        let mut rels = String::from(XML_DECL);
-        rels.push_str(
-            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
-        );
-        rels.push_str(
-            r#"<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>"#,
-        );
-        rels.push_str(
-            r#"<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>"#,
-        );
-        if doc.header().is_some() {
-            rels.push_str(
-                r#"<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>"#,
-            );
-        }
-        if doc.footer().is_some() {
-            rels.push_str(
-                r#"<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#,
-            );
-        }
-        for (url, id) in collect_links(doc)? {
-            let target = escape_xml_text(&url)?;
-            let _ = write!(
-                rels,
-                r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{target}" TargetMode="External"/>"#
-            );
-        }
-        rels.push_str("</Relationships>");
+        let rels = document_rels(doc, uses_lists)?;
 
         let mut parts: Vec<(&str, String)> = vec![
             ("[Content_Types].xml", content_types),
@@ -179,6 +159,9 @@ impl DocxWriter {
             ("word/styles.xml", styles),
             ("word/settings.xml", SETTINGS_XML.to_owned()),
         ];
+        if uses_lists {
+            parts.push(("word/numbering.xml", numbering_xml()));
+        }
         if let Some(header) = doc.header() {
             parts.push(("word/header1.xml", header_or_footer_xml("w:hdr", header)?));
         }
@@ -232,9 +215,23 @@ pub(crate) fn document_xml(doc: &DocxDocument) -> Result<String, DocError> {
 
 fn paragraph_xml(xml: &mut String, p: &Paragraph) -> Result<(), DocError> {
     xml.push_str("<w:p>");
+    let mut props = String::new();
     if let Some(style_id) = &p.style_id {
         let escaped = escape_xml_text(style_id)?;
-        let _ = write!(xml, r#"<w:pPr><w:pStyle w:val="{escaped}"/></w:pPr>"#);
+        let _ = write!(props, r#"<w:pStyle w:val="{escaped}"/>"#);
+    }
+    if let Some(kind) = p.list {
+        let num_id = match kind {
+            ListKind::Bulleted => BULLET_NUM_ID,
+            ListKind::Numbered => NUMBERED_NUM_ID,
+        };
+        let _ = write!(
+            props,
+            r#"<w:numPr><w:ilvl w:val="0"/><w:numId w:val="{num_id}"/></w:numPr>"#
+        );
+    }
+    if !props.is_empty() {
+        let _ = write!(xml, "<w:pPr>{props}</w:pPr>");
     }
     for run in p.runs() {
         run_xml(xml, run)?;
@@ -343,6 +340,84 @@ fn run_body_xml(xml: &mut String, run: &Run) -> Result<(), DocError> {
     );
     xml.push_str("</w:r>");
     Ok(())
+}
+
+/// `word/_rels/document.xml.rels`: styles, settings, header and footer when set,
+/// numbering when lists are used, and one external link per distinct address.
+fn document_rels(doc: &DocxDocument, uses_lists: bool) -> Result<String, DocError> {
+    let mut rels = String::from(XML_DECL);
+    rels.push_str(
+        r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
+    );
+    rels.push_str(
+        r#"<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>"#,
+    );
+    rels.push_str(
+        r#"<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>"#,
+    );
+    if doc.header().is_some() {
+        rels.push_str(
+            r#"<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>"#,
+        );
+    }
+    if doc.footer().is_some() {
+        rels.push_str(
+            r#"<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#,
+        );
+    }
+    if uses_lists {
+        rels.push_str(
+            r#"<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>"#,
+        );
+    }
+    for (url, id) in collect_links(doc)? {
+        let target = escape_xml_text(&url)?;
+        let _ = write!(
+            rels,
+            r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{target}" TargetMode="External"/>"#
+        );
+    }
+    rels.push_str("</Relationships>");
+    Ok(rels)
+}
+
+/// The `numId` of the bulleted list, and of the numbered list, in `numbering.xml`.
+const BULLET_NUM_ID: u16 = 1;
+const NUMBERED_NUM_ID: u16 = 2;
+
+/// Whether any paragraph in the body (including table cells) is a list item.
+fn document_has_lists(doc: &DocxDocument) -> bool {
+    doc.body().iter().any(|element| match element {
+        BodyElement::Paragraph(p) => p.list.is_some(),
+        BodyElement::Table(t) => t.rows().iter().any(|row| {
+            row.cells()
+                .iter()
+                .any(|cell| cell.paragraphs().iter().any(|p| p.list.is_some()))
+        }),
+    })
+}
+
+/// `word/numbering.xml`: one bulleted and one decimal list definition.
+fn numbering_xml() -> String {
+    let level = |format: &str, text: &str| {
+        format!(
+            r#"<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="{format}"/><w:lvlText w:val="{text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>"#
+        )
+    };
+    format!(
+        concat!(
+            r#"<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">"#,
+            r#"<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="singleLevel"/>{bullet}</w:abstractNum>"#,
+            r#"<w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="singleLevel"/>{decimal}</w:abstractNum>"#,
+            r#"<w:num w:numId="{bullet_id}"><w:abstractNumId w:val="0"/></w:num>"#,
+            r#"<w:num w:numId="{numbered_id}"><w:abstractNumId w:val="1"/></w:num>"#,
+            r#"</w:numbering>"#
+        ),
+        bullet = level("bullet", "•"),
+        decimal = level("decimal", "%1."),
+        bullet_id = BULLET_NUM_ID,
+        numbered_id = NUMBERED_NUM_ID,
+    )
 }
 
 /// The width of a column that was not given one: 2340 twips (1.625 inches).

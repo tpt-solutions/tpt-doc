@@ -89,19 +89,49 @@ impl RunStyle {
 pub struct Paragraph {
     /// Style ID referencing `word/styles.xml` (e.g. `"Heading1"`).
     pub style_id: Option<String>,
+    /// The list this paragraph is an item of, when it is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list: Option<ListKind>,
     runs: Vec<Run>,
+}
+
+/// The kind of list a paragraph belongs to.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListKind {
+    /// A list with bullet markers.
+    Bulleted,
+    /// A list numbered 1, 2, 3, …
+    Numbered,
 }
 
 impl Paragraph {
     /// Build a paragraph from its style and runs, exactly as read from a file.
-    pub(crate) fn from_parts(style_id: Option<String>, runs: Vec<Run>) -> Self {
-        Self { style_id, runs }
+    pub(crate) fn from_parts(
+        style_id: Option<String>,
+        list: Option<ListKind>,
+        runs: Vec<Run>,
+    ) -> Self {
+        Self {
+            style_id,
+            list,
+            runs,
+        }
+    }
+
+    /// Create a paragraph that is an item of a list.
+    pub fn list_item(kind: ListKind, text: impl Into<String>) -> Self {
+        Self {
+            style_id: None,
+            list: Some(kind),
+            runs: vec![Run::new(text)],
+        }
     }
 
     /// Create a Normal-style paragraph containing a single run.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             style_id: None,
+            list: None,
             runs: vec![Run::new(text)],
         }
     }
@@ -110,6 +140,7 @@ impl Paragraph {
     pub fn styled(style_id: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
             style_id: Some(style_id.into()),
+            list: None,
             runs: vec![Run::new(text)],
         }
     }
