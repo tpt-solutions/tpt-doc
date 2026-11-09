@@ -35,3 +35,5 @@ lcov.info
 # tpt-testkit crate (detached from the workspace)
 /testkit/target/
 /testkit/Cargo.lock
+crates/tpt-doc-wasm/playground/pkg/
+crates/tpt-doc-wasm/playground/pkg-node/

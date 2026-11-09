@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tpt-doc playground</title>
+  <style>
+    :root { --fg: #1d1d1f; --bg: #ffffff; --muted: #6e6e73; --line: #d2d2d7; --accent: #0a5bd3; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) { --fg: #f5f5f7; --bg: #1c1c1e; --muted: #98989d; --line: #3a3a3c; --accent: #5ea2ff; }
+    }
+    :root[data-theme="dark"] { --fg: #f5f5f7; --bg: #1c1c1e; --muted: #98989d; --line: #3a3a3c; --accent: #5ea2ff; }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p.note { color: var(--muted); margin: 0 0 16px; }
+    textarea, pre { box-sizing: border-box; width: 100%; font: 13px/1.4 ui-monospace, Consolas, monospace; border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: var(--bg); color: var(--fg); }
+    textarea { min-height: 180px; }
+    pre { min-height: 120px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+    button.secondary { background: transparent; color: var(--accent); }
+    select { font: inherit; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+    .status { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>tpt-doc playground</h1>
+  <p class="note">Runs in your browser. Nothing you paste here is sent anywhere.</p>
+
+  <label for="tool">Tool</label>
+  <select id="tool">
+    <option value="validate_document">validate_document</option>
+    <option value="convert_hl7_to_fhir">convert_hl7_to_fhir</option>
+    <option value="extract_text">extract_text (DOCX only, base64)</option>
+  </select>
+
+  <p class="status" id="status">Loading…</p>
+
+  <textarea id="input" spellcheck="false" aria-label="Document">MSH|^~\&amp;|HIS|ACME|RIS|CITY|20260101120000||ADT^A01|MSG1|P|2.5.1
+PID|1||12345^^^ACME^MR||Doe^Jane||19700101|F</textarea>
+
+  <div class="row">
+    <button id="run" disabled>Run</button>
+    <button id="sample" class="secondary">Load HL7 sample</button>
+  </div>
+
+  <pre id="output" aria-live="polite"></pre>
+
+  <script type="module">
+    import init, { handle, version } from "./pkg/tpt_doc_wasm.js";
+
+    const status = document.getElementById("status");
+    const output = document.getElementById("output");
+    const input = document.getElementById("input");
+    const tool = document.getElementById("tool");
+    const run = document.getElementById("run");
+
+    const sample = "MSH|^~\\&|HIS|ACME|RIS|CITY|20260101120000||ADT^A01|MSG1|P|2.5.1\nPID|1||12345^^^ACME^MR||Doe^Jane||19700101|F";
+    document.getElementById("sample").addEventListener("click", () => { input.value = sample; });
+
+    let nextId = 1;
+    function call(name, args) {
+      const request = JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } });
+      return JSON.parse(handle(request));
+    }
+
+    run.addEventListener("click", () => {
+      const response = call(tool.value, { content: input.value });
+      const result = response.result;
+      if (!result) {
+        output.textContent = JSON.stringify(response.error, null, 2);
+        return;
+      }
+      const text = result.content.map((block) => block.text).join("\n\n");
+      output.textContent = (result.isError ? "Problem:\n" : "") + text;
+    });
+
+    try {
+      await init();
+      status.textContent = "tpt-doc " + version() + " ready";
+      run.disabled = false;
+    } catch (error) {
+      status.textContent = "Could not load the wasm module: " + error;
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+[package]
+name = "tpt-doc-wasm"
+description = "WebAssembly build of the tpt-doc MCP interface, for the in-browser playground"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tpt-doc-mcp = { path = "../tpt-doc-mcp", version = "0.1.0" }
+# Pinned to the wasm-bindgen CLI version used to generate the glue.
+wasm-bindgen = "=0.2.126"

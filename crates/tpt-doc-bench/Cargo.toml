@@ -1,0 +1,23 @@
+[package]
+name = "tpt-doc-bench"
+description = "Criterion benchmarks backing tpt-doc's performance claims"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dev-dependencies]
+criterion = "0.8"
+tpt-doc-edi = { workspace = true }
+tpt-doc-fhir = { workspace = true }
+tpt-doc-hl7v2 = { workspace = true }
+tpt-doc-pdf = { workspace = true }
+tpt-doc-spreadsheet = { workspace = true }
+
+[[bench]]
+name = "formats"
+harness = false
