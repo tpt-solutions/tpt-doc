@@ -29,6 +29,7 @@
 pub mod invoice;
 /// Exact decimal types (`Money`, `Decimal`) for invoice arithmetic.
 pub mod money;
+mod traits;
 /// Shared UBL/PEPPOL data types.
 pub mod types;
 /// PEPPOL BIS Billing 3.0 validation rules.
