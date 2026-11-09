@@ -55,12 +55,37 @@ pub fn build_997(
 ) -> Result<Vec<u8>, DocError> {
     if control.is_empty() || control.len() > 9 || !control.bytes().all(|b| b.is_ascii_digit()) {
         return Err(DocError::invalid_format(
+            "997/999 interchange control number must be up to nine digits",
+        ));
+    }
+    let segments: Vec<X12Segment<'_>> = X12Parser::new(interchange)?.collect::<Result<_, _>>()?;
+    let envelope = read_envelope(&segments)?;
+    Ok(write_acknowledgment(&envelope, "997", "AK5", accepted, control, date, time).into_bytes())
+}
+
+/// Build a `999` implementation acknowledgment for an X12 interchange.
+///
+/// The arguments and envelope are those of [`build_997`]. The set-level response
+/// is `IK5` rather than `AK5`. This writes no `IK3`/`IK4` segment-error detail,
+/// so a rejection says a set was refused but not which segment was wrong.
+///
+/// # Errors
+/// As [`build_997`].
+pub fn build_999(
+    interchange: &[u8],
+    accepted: bool,
+    control: &str,
+    date: &str,
+    time: &str,
+) -> Result<Vec<u8>, DocError> {
+    if control.is_empty() || control.len() > 9 || !control.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(DocError::invalid_format(
             "997 interchange control number must be up to nine digits",
         ));
     }
     let segments: Vec<X12Segment<'_>> = X12Parser::new(interchange)?.collect::<Result<_, _>>()?;
     let envelope = read_envelope(&segments)?;
-    Ok(write_997(&envelope, accepted, control, date, time).into_bytes())
+    Ok(write_acknowledgment(&envelope, "999", "IK5", accepted, control, date, time).into_bytes())
 }
 
 fn read_envelope(segments: &[X12Segment<'_>]) -> Result<Envelope, DocError> {
@@ -111,18 +136,26 @@ fn read_envelope(segments: &[X12Segment<'_>]) -> Result<Envelope, DocError> {
     })
 }
 
-fn write_997(envelope: &Envelope, accepted: bool, control: &str, date: &str, time: &str) -> String {
+fn write_acknowledgment(
+    envelope: &Envelope,
+    version: &str,
+    response_tag: &str,
+    accepted: bool,
+    control: &str,
+    date: &str,
+    time: &str,
+) -> String {
     let code = if accepted { "A" } else { "R" };
     let set_count = envelope.sets.len();
 
     // The functional group body. SE01 counts its segments from ST to SE.
     let mut body: Vec<String> = vec![
-        "ST*997*0001".to_owned(),
+        format!("ST*{version}*0001"),
         format!("AK1*{}*{}", envelope.functional_id, envelope.group_control),
     ];
     for (set_id, set_control) in &envelope.sets {
         body.push(format!("AK2*{set_id}*{set_control}"));
-        body.push(format!("AK5*{code}"));
+        body.push(format!("{response_tag}*{code}"));
     }
     let accepted_count = if accepted { set_count } else { 0 };
     body.push(format!(
@@ -204,6 +237,19 @@ impl GroupAck {
 /// appears outside a group, a group has no `AK9`, or an `AK9` count does not
 /// match the sets listed.
 pub fn parse_997(interchange: &[u8]) -> Result<Vec<GroupAck>, DocError> {
+    parse_acknowledgment(interchange, "AK5")
+}
+
+/// Read a `999` implementation acknowledgment. Its per-set response is `IK5`
+/// rather than `AK5`; otherwise it reads like a `997`.
+///
+/// # Errors
+/// As [`parse_997`].
+pub fn parse_999(interchange: &[u8]) -> Result<Vec<GroupAck>, DocError> {
+    parse_acknowledgment(interchange, "IK5")
+}
+
+fn parse_acknowledgment(interchange: &[u8], response_tag: &str) -> Result<Vec<GroupAck>, DocError> {
     let segments: Vec<X12Segment<'_>> = X12Parser::new(interchange)?.collect::<Result<_, _>>()?;
     let mut groups: Vec<GroupAck> = Vec::new();
     let mut open: Option<GroupAck> = None;
@@ -253,7 +299,7 @@ pub fn parse_997(interchange: &[u8]) -> Result<Vec<GroupAck>, DocError> {
                 });
                 current_set = true;
             }
-            "AK5" => {
+            tag if tag == response_tag => {
                 let group = open
                     .as_mut()
                     .ok_or_else(|| DocError::invalid_format("AK5 outside a group"))?;
@@ -272,6 +318,12 @@ pub fn parse_997(interchange: &[u8]) -> Result<Vec<GroupAck>, DocError> {
                 group.sets_included = count(segment, 1)?;
                 group.sets_received = count(segment, 2)?;
                 group.sets_accepted = count(segment, 3)?;
+                if let Some(set) = group.sets.iter().find(|set| set.code.is_empty()) {
+                    return Err(DocError::invalid_format(format!(
+                        "transaction set {} has no response code",
+                        set.set_control
+                    )));
+                }
                 if group.sets_included != group.sets.len()
                     || group.sets_received != group.sets.len()
                 {
