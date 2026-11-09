@@ -1,0 +1,68 @@
+[package]
+name = "tpt-doc-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tpt-doc-edi = { path = "../crates/tpt-doc-edi" }
+tpt-doc-fhir = { path = "../crates/tpt-doc-fhir" }
+tpt-doc-hl7v2 = { path = "../crates/tpt-doc-hl7v2" }
+tpt-doc-pdf = { path = "../crates/tpt-doc-pdf" }
+tpt-doc-spreadsheet = { path = "../crates/tpt-doc-spreadsheet" }
+tpt-doc-word = { path = "../crates/tpt-doc-word" }
+
+[[bin]]
+name = "hl7v2_parse"
+path = "fuzz_targets/hl7v2_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "edifact_parse"
+path = "fuzz_targets/edifact_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "x12_parse"
+path = "fuzz_targets/x12_parse.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fhir_json"
+path = "fuzz_targets/fhir_json.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fhir_xml"
+path = "fuzz_targets/fhir_xml.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "xlsx_read"
+path = "fuzz_targets/xlsx_read.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "docx_read"
+path = "fuzz_targets/docx_read.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "pdf_extract"
+path = "fuzz_targets/pdf_extract.rs"
+test = false
+doc = false
+
+[workspace]
+members = ["."]

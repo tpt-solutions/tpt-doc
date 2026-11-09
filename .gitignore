@@ -37,3 +37,6 @@ lcov.info
 /testkit/Cargo.lock
 crates/tpt-doc-wasm/playground/pkg/
 crates/tpt-doc-wasm/playground/pkg-node/
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
