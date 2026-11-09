@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - mdBook documentation skeleton
 
 ### Fixed
+- DOCX tables written without explicit column widths now write the same cell widths the grid uses, so a write-read-write trip is byte-identical (the document snapshot was updated for this)
 - PAdES incremental updates wrote a `startxref` relative to the appended update instead of the file, so readers that follow the trailer chain could not find the new xref table. Found by the text extractor; a regression test now checks it.
 
 ### Changed
