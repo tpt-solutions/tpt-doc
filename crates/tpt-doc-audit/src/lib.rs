@@ -186,6 +186,26 @@ impl AuditLog {
         Ok(log)
     }
 
+    /// Check a seal made by [`AuditLog::seal`] against this log's head.
+    ///
+    /// The log is verified first. The seal checks only if it was made over the
+    /// current head, so a seal taken before later entries were appended no
+    /// longer verifies. This checks the signature and the certificate's
+    /// validity at `at_unix_seconds` when given; whether the certificate is
+    /// trusted is the caller's decision.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if the log does not verify, or the seal does not
+    /// verify over the current head.
+    pub fn verify_seal(
+        &self,
+        seal_der: &[u8],
+        at_unix_seconds: Option<i64>,
+    ) -> Result<tpt_doc_sign::verify::Verified, DocError> {
+        self.verify()?;
+        tpt_doc_sign::verify::verify_detached(self.head().as_bytes(), seal_der, at_unix_seconds)
+    }
+
     /// Sign the head with a CAdES detached signature.
     ///
     /// The log is verified first, so a broken log is never sealed. The seal
