@@ -1,5 +1,6 @@
 /// The five HL7 v2.x encoding characters (MSH-1/MSH-2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Delimiters {
     /// Field separator (MSH-1, default `|`).
     pub field: u8,

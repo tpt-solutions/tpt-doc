@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use tpt_doc_core::DocError;
 use tpt_doc_core::{Location, Severity, ValidationIssue, ValidationReport};
 
 use crate::segment::Segment;
@@ -19,7 +20,7 @@ pub struct FieldDef {
     /// Whether the field is mandatory.
     pub required: bool,
     /// Field name from the standard.
-    pub name: &'static str,
+    pub name: String,
 }
 
 /// Segment definitions keyed by segment id.
@@ -77,33 +78,34 @@ impl Hl7Violation {
 }
 
 impl SegmentTables {
-    /// Parse the embedded TSV: `segment \t field \t req \t name`.
-    #[must_use]
-    pub fn parse(tsv: &'static str) -> Self {
+    /// Load a table from TSV text: `segment \t field \t req \t name`, where `req`
+    /// is `M` (mandatory) or `O` (optional).
+    ///
+    /// # Errors
+    /// Returns an error naming the line for any malformed row.
+    /// # Errors
+    /// Returns an error naming the line for any malformed row.
+    pub fn from_tsv(tsv: &str) -> Result<Self, DocError> {
         let mut by_segment: HashMap<String, Vec<FieldDef>> = HashMap::new();
-        for line in tsv.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let cols: Vec<&str> = line.split('\t').collect();
-            if cols.len() < 4 {
-                continue;
-            }
-            let (Ok(field), required, name) = (cols[1].parse::<u16>(), cols[2] == "M", cols[3])
-            else {
-                continue;
+        for row in tpt_doc_core::tsv::rows(tsv) {
+            row.expect_columns(4)?;
+            let required = match row.columns[2] {
+                "M" => true,
+                "O" => false,
+                other => {
+                    return Err(row.error(format!("requirement must be M or O, found `{other}`")));
+                }
             };
             by_segment
-                .entry(cols[0].to_owned())
+                .entry(row.columns[0].to_owned())
                 .or_default()
                 .push(FieldDef {
-                    field,
+                    field: row.parse_u16(1)?,
                     required,
-                    name,
+                    name: row.columns[3].to_owned(),
                 });
         }
-        Self { by_segment }
+        Ok(Self { by_segment })
     }
 
     /// The definition rows for a segment id, if known.
@@ -148,8 +150,11 @@ impl SegmentTables {
 
 /// Load the embedded v2.5.1 tables.
 #[must_use]
+/// # Panics
+/// Panics only if the embedded table is malformed; the crate's tests load it.
 pub fn v251() -> SegmentTables {
-    SegmentTables::parse(include_str!("../schemas/v251/segments.tsv"))
+    SegmentTables::from_tsv(include_str!("../schemas/v251/segments.tsv"))
+        .expect("embedded v2.5.1 table is well formed")
 }
 
 /// Validate a whole message: every known segment against its definition,

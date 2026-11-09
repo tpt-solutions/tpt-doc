@@ -19,8 +19,14 @@
 //! pattern as `tpt-doc-edi`. Encoding characters are read from MSH-2, so
 //! messages using non-default delimiters parse transparently.
 
+/// HL7 v2 acknowledgments (`ACK`) answering a message.
+pub mod ack;
+/// HL7 v2 batches (`BHS`/`BTS`): several messages in one stream.
+pub mod batch;
 /// Message building and serialization.
 pub mod encode;
+/// MLLP framing for HL7 v2 messages over a byte stream.
+pub mod mllp;
 /// Streaming HL7 v2.x message parser.
 pub mod parser;
 /// De-identification of messages (HIPAA Safe Harbor profile, custom rules).

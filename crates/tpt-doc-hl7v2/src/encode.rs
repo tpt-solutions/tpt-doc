@@ -6,11 +6,15 @@ use crate::segment::Delimiters;
 /// MSH-2 (the encoding characters); MSH-1 (the field separator) is implicit
 /// and re-emitted during serialization.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MessageSegment {
     /// Three-character segment tag.
     pub tag: String,
     /// Field values, field `n` at index `n - 1`.
     pub fields: Vec<String>,
+    /// When `true`, `fields` are already HL7-escaped and are written verbatim.
+    /// Set by [`Message::push_escaped_segment`].
+    pub escaped: bool,
 }
 
 /// HL7 v2.x message builder and encoder.
@@ -19,6 +23,7 @@ pub struct MessageSegment {
 /// append segments with [`push_segment`](Self::push_segment), then serialize
 /// with [`to_bytes`](Self::to_bytes) into `\r`-delimited bytes.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Message {
     segments: Vec<MessageSegment>,
     delims: Delimiters,
@@ -79,6 +84,7 @@ impl Message {
         ];
         Self {
             segments: vec![MessageSegment {
+                escaped: false,
                 tag: "MSH".to_owned(),
                 fields,
             }],
@@ -91,6 +97,20 @@ impl Message {
         self.segments.push(MessageSegment {
             tag: tag.into(),
             fields: fields.iter().map(|f| (*f).to_owned()).collect(),
+            escaped: false,
+        });
+    }
+
+    /// Append a segment whose fields are already HL7-escaped.
+    ///
+    /// Use this for free text that the caller has escaped itself, for example
+    /// with the `\S\` sequence for a component separator. The encoder would
+    /// otherwise escape the backslashes of those sequences a second time.
+    pub fn push_escaped_segment(&mut self, tag: impl Into<String>, fields: &[&str]) {
+        self.segments.push(MessageSegment {
+            tag: tag.into(),
+            fields: fields.iter().map(|f| (*f).to_owned()).collect(),
+            escaped: true,
         });
     }
 
@@ -120,7 +140,7 @@ impl Message {
                 .map(|(index, field)| {
                     // MSH-2 is the encoding-characters field itself and must
                     // be written verbatim.
-                    if is_msh && index == 0 {
+                    if (is_msh && index == 0) || seg.escaped {
                         field.clone()
                     } else {
                         escape_value(field, self.delims)
@@ -165,6 +185,27 @@ fn escape_value(value: &str, delims: Delimiters) -> String {
     }
     out
 }
+/// Escape free text for an HL7 field, using the standard escape sequences for
+/// the default delimiters, so that a `|`, `^`, `&`, `~` or `\` in the text is
+/// not read as structure. Line breaks become spaces, since a field cannot
+/// contain a segment terminator.
+#[must_use]
+pub fn escape_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\E\\"),
+            '|' => out.push_str("\\F\\"),
+            '^' => out.push_str("\\S\\"),
+            '&' => out.push_str("\\T\\"),
+            '~' => out.push_str("\\R\\"),
+            '\r' | '\n' => out.push(' '),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
