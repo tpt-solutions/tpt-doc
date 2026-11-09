@@ -1,0 +1,24 @@
+[package]
+name = "tpt-doc-mcp"
+description = "Model Context Protocol server exposing tpt-doc validation, conversion and generation to AI agents"
+keywords = ["mcp", "agent", "validation", "fhir", "invoice"]
+categories = ["command-line-utilities", "parser-implementations"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-mcp"
+rust-version.workspace = true
+
+[[bin]]
+name = "tpt-mcp"
+path = "src/main.rs"
+
+[dependencies]
+tpt-doc-cli = { path = "../tpt-doc-cli", version = "0.1.0" }
+tpt-doc-ubl = { workspace = true }
+base64 = { workspace = true }
+serde_json = { workspace = true }
