@@ -17,7 +17,7 @@ use std::io::{Cursor, Write};
 
 use tpt_doc_core::{DocError, Limits};
 use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipArchive, ZipWriter};
+use zip::{CompressionMethod, System, ZipArchive, ZipWriter};
 
 /// The XML declaration that opens every OOXML part.
 pub const XML_DECL: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#;
@@ -62,7 +62,12 @@ impl PackageWriter {
     pub fn new() -> Self {
         Self {
             zip: ZipWriter::new(Cursor::new(Vec::new())),
-            options: SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+            // The zip crate records the host OS in each entry header unless told
+            // otherwise, which made packages differ between Windows and Linux.
+            // Pin it so output is byte-identical on every platform.
+            options: SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Deflated)
+                .system(System::Dos),
         }
     }
 
