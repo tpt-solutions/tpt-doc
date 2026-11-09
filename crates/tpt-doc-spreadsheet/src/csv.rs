@@ -15,6 +15,17 @@ impl<R: std::io::Read> CsvReader<R> {
         }
     }
 
+    /// The header row (the first line), as strings.
+    ///
+    /// # Errors
+    /// Returns [`DocError`] if the header cannot be parsed.
+    pub fn headers(&mut self) -> Result<Vec<String>, DocError> {
+        self.inner
+            .headers()
+            .map(|record| record.iter().map(str::to_owned).collect())
+            .map_err(|e| DocError::invalid_format(e.to_string()))
+    }
+
     /// Iterate over records as `Vec<String>`.
     ///
     /// # Errors

@@ -1,0 +1,16 @@
+[package]
+name = "tpt-doc-ooxml"
+description = "Shared OOXML package handling (ZIP containers and XML parts) for the XLSX and DOCX crates"
+keywords = ["ooxml", "zip", "office", "xml"]
+categories = ["parser-implementations"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tpt-doc-core = { workspace = true }
+zip = { workspace = true }

@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
-use std::io::Write;
 
 use quick_xml::XmlVersion;
 use quick_xml::events::Event;
@@ -7,11 +7,11 @@ use tpt_doc_core::DocError;
 use tpt_doc_core::Limits;
 use tpt_doc_core::Location;
 use tpt_doc_core::escape_xml_text;
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipArchive, ZipWriter};
+use tpt_doc_ooxml::{PackageWriter, XML_DECL, open_archive, read_part};
+use zip::ZipArchive;
 
 /// A single spreadsheet cell value.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Cell {
     /// A string value (from the shared strings table or inline).
     String(String),
@@ -26,7 +26,7 @@ pub enum Cell {
 }
 
 /// A worksheet row: an ordered list of cells with a 1-based row index.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Row {
     /// 1-based row number.
     pub index: u32,
@@ -80,12 +80,10 @@ impl XlsxReader {
     /// an entry exceeds `limits.max_entry_bytes`, or the first worksheet entry
     /// is missing.
     pub fn with_limits(bytes: &[u8], limits: Limits) -> Result<Self, DocError> {
-        let cursor = std::io::Cursor::new(bytes);
-        let mut archive = ZipArchive::new(cursor)
-            .map_err(|e| DocError::invalid_format(format!("not a valid ZIP archive: {e}")))?;
+        let mut archive = open_archive(bytes)?;
         let shared_strings = read_shared_strings(&mut archive, &limits)?;
         let sheet_path = resolve_first_sheet(&mut archive, &limits)?;
-        let sheet = read_entry(&mut archive, &sheet_path, &limits)?;
+        let sheet = read_part(&mut archive, &sheet_path, &limits)?;
         Ok(Self {
             sheet,
             shared_strings,
@@ -403,22 +401,6 @@ impl Iterator for RowsIter<'_> {
     }
 }
 
-/// Read a ZIP entry, bounding the decompressed size.
-///
-/// A small archive can declare an entry that inflates to gigabytes, so the
-/// read stops at [`Limits::max_entry_bytes`] rather than trusting the input.
-/// See [`tpt_doc_core::Limits`].
-fn read_entry(
-    archive: &mut ZipArchive<std::io::Cursor<&[u8]>>,
-    name: &str,
-    limits: &Limits,
-) -> Result<Vec<u8>, DocError> {
-    let mut file = archive
-        .by_name(name)
-        .map_err(|_| DocError::invalid_format(format!("missing ZIP entry `{name}`")))?;
-    limits.read_to_end(&mut file)
-}
-
 /// Read an attribute (first match among `names`) from an element's start tag.
 fn attr_of(e: &quick_xml::events::BytesStart<'_>, names: &[&str]) -> Option<String> {
     e.attributes()
@@ -443,7 +425,7 @@ fn resolve_first_sheet(
     if archive.by_name("xl/workbook.xml").is_err() {
         return Ok(DEFAULT.to_owned());
     }
-    let workbook = read_entry(archive, "xl/workbook.xml", limits)?;
+    let workbook = read_part(archive, "xl/workbook.xml", limits)?;
     let mut rid = None;
     let mut reader = quick_xml::Reader::from_reader(workbook.as_slice());
     let mut depth = 0usize;
@@ -477,7 +459,7 @@ fn resolve_first_sheet(
     if archive.by_name("xl/_rels/workbook.xml.rels").is_err() {
         return Ok(DEFAULT.to_owned());
     }
-    let rels = read_entry(archive, "xl/_rels/workbook.xml.rels", limits)?;
+    let rels = read_part(archive, "xl/_rels/workbook.xml.rels", limits)?;
     let mut reader = quick_xml::Reader::from_reader(rels.as_slice());
     loop {
         match reader.read_event() {
@@ -517,7 +499,7 @@ fn read_shared_strings(
     if archive.by_name("xl/sharedStrings.xml").is_err() {
         return Ok(Vec::new());
     }
-    let bytes = read_entry(archive, "xl/sharedStrings.xml", limits)?;
+    let bytes = read_part(archive, "xl/sharedStrings.xml", limits)?;
     let mut reader = quick_xml::Reader::from_reader(bytes.as_slice());
     let mut strings = Vec::new();
     let mut current = String::new();
@@ -598,10 +580,6 @@ impl XlsxWriter {
     /// # Errors
     /// Returns [`DocError`] on serialization failure.
     pub fn finish(self) -> Result<Vec<u8>, DocError> {
-        let cursor = std::io::Cursor::new(Vec::new());
-        let mut zip = ZipWriter::new(cursor);
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-
         let sheet = build_sheet_xml(&self.rows)?;
         let parts: [(&str, &str); 5] = [
             ("[Content_Types].xml", CONTENT_TYPES_XML),
@@ -610,15 +588,11 @@ impl XlsxWriter {
             ("xl/_rels/workbook.xml.rels", WORKBOOK_RELS_XML),
             ("xl/worksheets/sheet1.xml", &sheet),
         ];
+        let mut package = PackageWriter::new();
         for (name, content) in parts {
-            zip.start_file(name, options)
-                .map_err(|e| DocError::invalid_format(format!("ZIP entry `{name}` failed: {e}")))?;
-            zip.write_all(content.as_bytes())?;
+            package.add_part(name, content)?;
         }
-        let cursor = zip
-            .finish()
-            .map_err(|e| DocError::invalid_format(format!("ZIP finalization failed: {e}")))?;
-        Ok(cursor.into_inner())
+        package.finish()
     }
 }
 
@@ -627,8 +601,6 @@ impl Default for XlsxWriter {
         Self::new()
     }
 }
-
-const XML_DECL: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#;
 
 const CONTENT_TYPES_XML: &str = concat!(
     r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,

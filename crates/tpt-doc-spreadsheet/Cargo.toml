@@ -15,12 +15,14 @@ rust-version.workspace = true
 
 [dependencies]
 tpt-doc-core = { workspace = true }
+tpt-doc-ooxml = { workspace = true }
 zip = { workspace = true }
 quick-xml = { workspace = true }
 csv = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 proptest = { workspace = true }
 tpt-doc-core = { workspace = true }
 zip = { workspace = true }
