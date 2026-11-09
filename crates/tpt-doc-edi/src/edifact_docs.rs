@@ -1,6 +1,7 @@
 //! EDIFACT `ORDERS` (purchase orders) and `INVOIC` (invoices): read-only.
 //!
-//! Both messages share one shape here: `BGM` for the document number, `DTM+137`
+//! The three messages share one shape here (for DESADV the number is the
+//! despatch note and the quantities are the quantities despatched): `BGM` for the document number, `DTM+137`
 //! for its date, `NAD+BY` for the buyer, a `LIN` for each line with its `QTY`,
 //! and for an invoice a `MOA+9` amount due. The `UNT` segment count is checked
 //! against the segments of the message, as the standard requires.
@@ -21,6 +22,8 @@ pub enum MessageKind {
     Orders,
     /// An invoice.
     Invoic,
+    /// A despatch advice (delivery note).
+    Desadv,
 }
 
 /// An `ORDERS` or `INVOIC` message.
@@ -51,11 +54,11 @@ pub struct DocLine {
     pub quantity: Option<String>,
 }
 
-/// Read an `ORDERS` or `INVOIC` message from an EDIFACT interchange.
+/// Read an `ORDERS`, `INVOIC` or `DESADV` message from an EDIFACT interchange.
 ///
 /// # Errors
 /// Returns [`DocError`] if the input does not parse, there is no `UNH` of a
-/// supported kind, the `UNT` segment count does not match the message, or a
+/// supported kind (`ORDERS`, `INVOIC` or `DESADV`), the `UNT` segment count does not match the message, or a
 /// `LIN` has no item number.
 pub fn parse_document(interchange: &[u8]) -> Result<Document, DocError> {
     let segments: Vec<Segment<'_>> = EdifactParser::new(interchange).collect::<Result<_, _>>()?;
@@ -66,6 +69,7 @@ pub fn parse_document(interchange: &[u8]) -> Result<Document, DocError> {
     let kind = match component(&segments[start], 1, 0) {
         "ORDERS" => MessageKind::Orders,
         "INVOIC" => MessageKind::Invoic,
+        "DESADV" => MessageKind::Desadv,
         other => {
             return Err(DocError::invalid_format(format!(
                 "message type `{other}` is not ORDERS or INVOIC"

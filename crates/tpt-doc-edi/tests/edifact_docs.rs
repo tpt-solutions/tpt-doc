@@ -1,9 +1,10 @@
-//! EDIFACT ORDERS and INVOIC: header, lines, quantities, and the UNT check.
+//! EDIFACT ORDERS, INVOIC and DESADV: header, lines, quantities, and the UNT check.
 
 use tpt_doc_edi::edifact_docs::{MessageKind, parse_document};
 
 const ORDERS: &[u8] = include_bytes!("fixtures/sample_orders.edifact");
 const INVOIC: &[u8] = include_bytes!("fixtures/sample_invoic.edifact");
+const DESADV: &[u8] = include_bytes!("fixtures/sample_desadv.edifact");
 
 fn replaced(source: &[u8], from: &str, to: &str) -> Vec<u8> {
     String::from_utf8(source.to_vec())
@@ -44,12 +45,21 @@ fn a_unt_count_that_disagrees_is_refused() {
 
 #[test]
 fn a_message_of_another_kind_is_refused() {
-    let err = parse_document(&replaced(ORDERS, "ORDERS:D:96A", "DESADV:D:96A"))
-        .expect_err("not ORDERS or INVOIC");
-    assert!(err.to_string().contains("DESADV"), "{err}");
+    let err = parse_document(&replaced(ORDERS, "ORDERS:D:96A", "APERAK:D:96A"))
+        .expect_err("APERAK is not supported");
+    assert!(err.to_string().contains("APERAK"), "{err}");
 }
 
 #[test]
 fn a_line_without_an_item_number_is_refused() {
     assert!(parse_document(&replaced(ORDERS, "LIN+2++GADGET-9:VP'", "LIN+2'")).is_err());
+}
+
+#[test]
+fn a_despatch_advice_reads_its_note_and_despatched_quantities() {
+    let note = parse_document(DESADV).expect("parse");
+    assert_eq!(note.kind, MessageKind::Desadv);
+    assert_eq!(note.number, "DN7001");
+    assert_eq!(note.lines.len(), 2);
+    assert_eq!(note.lines[0].quantity.as_deref(), Some("10"));
 }
