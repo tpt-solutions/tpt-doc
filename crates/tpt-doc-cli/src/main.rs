@@ -3,8 +3,7 @@
 //! Exit codes: `0` success / valid, `1` document invalid, `2` usage or I/O
 //! error.
 
-mod commands;
-mod sniff;
+use tpt_doc_cli::commands;
 
 use std::io::{Read, Write};
 use std::process::ExitCode;
