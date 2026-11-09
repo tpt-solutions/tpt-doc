@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// A run of text with uniform character formatting.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Run {
     /// The run's text content.
     pub text: String,
@@ -26,7 +28,7 @@ impl Run {
 }
 
 /// Character-level formatting for a [`Run`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RunStyle {
     /// Render in a bold typeface.
     pub bold: bool,
@@ -69,7 +71,7 @@ impl RunStyle {
 }
 
 /// A paragraph: a named style plus an ordered sequence of [`Run`]s.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Paragraph {
     /// Style ID referencing `word/styles.xml` (e.g. `"Heading1"`).
     pub style_id: Option<String>,
@@ -77,6 +79,11 @@ pub struct Paragraph {
 }
 
 impl Paragraph {
+    /// Build a paragraph from its style and runs, exactly as read from a file.
+    pub(crate) fn from_parts(style_id: Option<String>, runs: Vec<Run>) -> Self {
+        Self { style_id, runs }
+    }
+
     /// Create a Normal-style paragraph containing a single run.
     pub fn new(text: impl Into<String>) -> Self {
         Self {

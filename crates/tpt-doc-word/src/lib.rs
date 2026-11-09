@@ -24,10 +24,12 @@
 pub mod document;
 /// Paragraphs and formatted text runs.
 pub mod paragraph;
+mod read;
 /// Built-in paragraph styles.
 pub mod styles;
 /// Tables, rows, and cells.
 pub mod table;
+mod traits;
 
 pub use document::{BodyElement, DocxDocument, DocxReader, DocxWriter};
 pub use paragraph::{Paragraph, Run, RunStyle};

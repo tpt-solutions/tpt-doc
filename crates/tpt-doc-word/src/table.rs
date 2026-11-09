@@ -1,7 +1,8 @@
 use crate::paragraph::Paragraph;
+use serde::{Deserialize, Serialize};
 
 /// Border style for table outlines.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum BorderStyle {
     /// No borders rendered.
     #[default]
@@ -13,12 +14,17 @@ pub enum BorderStyle {
 }
 
 /// A table cell: one or more paragraphs.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Cell {
     paragraphs: Vec<Paragraph>,
 }
 
 impl Cell {
+    /// Build a cell from its paragraphs, exactly as read from a file.
+    pub(crate) fn from_paragraphs(paragraphs: Vec<Paragraph>) -> Self {
+        Self { paragraphs }
+    }
+
     /// Create a cell containing a single Normal paragraph.
     pub fn new(text: impl Into<String>) -> Self {
         Self {
@@ -39,7 +45,7 @@ impl Cell {
 }
 
 /// A table row: an ordered sequence of cells.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub struct Row {
     cells: Vec<Cell>,
 }
@@ -66,7 +72,7 @@ impl Row {
 
 /// A table: rows of cells with a uniform border style and optional
 /// fixed column widths.
-#[derive(Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Table {
     rows: Vec<Row>,
     /// Border style applied to the whole table.

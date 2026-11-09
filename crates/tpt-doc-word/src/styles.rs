@@ -1,5 +1,7 @@
+use serde::{Deserialize, Serialize};
+
 /// Built-in paragraph styles that `word/styles.xml` must define.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BuiltinStyle {
     /// Default body text.
     Normal,

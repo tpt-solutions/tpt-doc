@@ -1,20 +1,19 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
-use std::io::Write as _;
 
 use quick_xml::events::Event;
 use tpt_doc_core::DocError;
 use tpt_doc_core::Limits;
 use tpt_doc_core::Location;
 use tpt_doc_core::escape_xml_text;
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipArchive, ZipWriter};
+use tpt_doc_ooxml::{PackageWriter, XML_DECL, open_archive, read_part};
 
 use crate::styles::BuiltinStyle;
 use crate::table::BorderStyle;
 use crate::{Cell, Paragraph, Run, Table};
 
 /// A Word document body element — either a paragraph or a table.
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BodyElement {
     /// A paragraph (may contain multiple [`Run`](crate::Run)s).
     Paragraph(Paragraph),
@@ -23,7 +22,7 @@ pub enum BodyElement {
 }
 
 /// An in-memory Word document model.
-#[derive(Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct DocxDocument {
     body: Vec<BodyElement>,
     /// Optional running header text (`word/header1.xml`).
@@ -165,10 +164,6 @@ impl DocxWriter {
         }
         rels.push_str("</Relationships>");
 
-        let cursor = std::io::Cursor::new(Vec::new());
-        let mut zip = ZipWriter::new(cursor);
-        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-
         let mut parts: Vec<(&str, String)> = vec![
             ("[Content_Types].xml", content_types),
             ("_rels/.rels", root_rels.to_owned()),
@@ -184,19 +179,13 @@ impl DocxWriter {
             parts.push(("word/footer1.xml", header_or_footer_xml("w:ftr", footer)?));
         }
 
+        let mut package = PackageWriter::new();
         for (name, content) in &parts {
-            zip.start_file(name, options)
-                .map_err(|e| DocError::invalid_format(format!("ZIP entry `{name}` failed: {e}")))?;
-            zip.write_all(content.as_bytes())?;
+            package.add_part(name, content)?;
         }
-        let cursor = zip
-            .finish()
-            .map_err(|e| DocError::invalid_format(format!("ZIP finalization failed: {e}")))?;
-        Ok(cursor.into_inner())
+        package.finish()
     }
 }
-
-const XML_DECL: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#;
 
 const SETTINGS_XML: &str = concat!(
     r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
@@ -461,15 +450,9 @@ impl DocxReader {
     /// entry exceeds `limits.max_entry_bytes`, or the document nests deeper
     /// than `limits.max_xml_depth`.
     pub fn extract_text_with_limits(bytes: &[u8], limits: Limits) -> Result<String, DocError> {
-        let cursor = std::io::Cursor::new(bytes);
-        let mut archive = ZipArchive::new(cursor)
-            .map_err(|e| DocError::invalid_format(format!("not a valid ZIP archive: {e}")))?;
-        let mut document = archive
-            .by_name("word/document.xml")
-            .map_err(|_| DocError::invalid_format("missing ZIP entry `word/document.xml`"))?;
-        // Bound the decompressed size: a small archive can declare an entry
-        // that inflates to gigabytes. See `tpt_doc_core::Limits`.
-        let xml = limits.read_to_end(&mut document)?;
+        let mut archive = open_archive(bytes)?;
+        // Bounded: a small archive can declare an entry that inflates to gigabytes.
+        let xml = read_part(&mut archive, "word/document.xml", &limits)?;
 
         let mut reader = quick_xml::Reader::from_reader(xml.as_slice());
         let mut text = String::new();
@@ -532,7 +515,7 @@ impl DocxReader {
 ///
 /// OOXML parts define no custom entities, so only the five predefined
 /// references and character references are accepted.
-fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> Result<String, DocError> {
+pub(crate) fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> Result<String, DocError> {
     if r.is_char_ref() {
         return match r.resolve_char_ref() {
             Ok(Some(ch)) => Ok(ch.to_string()),
@@ -553,6 +536,8 @@ fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> Result<String, DocError> 
 
 #[cfg(test)]
 mod tests {
+    use zip::ZipArchive;
+
     use super::*;
     use crate::{Cell, Row, RunStyle, Table};
 
