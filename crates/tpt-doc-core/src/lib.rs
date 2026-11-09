@@ -26,6 +26,7 @@ pub mod error;
 pub mod limits;
 /// Shared reader/writer/validation traits.
 pub mod traits;
+pub mod tsv;
 /// XML character legality and entity escaping.
 pub mod xml;
 

@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(report.errors().count(), 1);
         assert_eq!(report.warnings().count(), 0);
         assert_eq!(report.issues()[0].severity, Severity::Error);
-        assert!(report.issues()[0].rule_id.is_empty());
+        assert_eq!(report.issues()[0].rule_id, "");
         assert_eq!(report.issues()[0].location, Location::Unknown);
     }
 
