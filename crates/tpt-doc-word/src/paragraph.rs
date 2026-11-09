@@ -7,6 +7,9 @@ pub struct Run {
     pub text: String,
     /// Character formatting applied to the run.
     pub style: RunStyle,
+    /// The external address this run links to, when it is a hyperlink.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 impl Run {
@@ -15,6 +18,16 @@ impl Run {
         Self {
             text: text.into(),
             style: RunStyle::default(),
+            link: None,
+        }
+    }
+
+    /// Create a run that links to an external address.
+    pub fn linked(text: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            style: RunStyle::default(),
+            link: Some(url.into()),
         }
     }
 
@@ -23,6 +36,7 @@ impl Run {
         Self {
             text: text.into(),
             style,
+            link: None,
         }
     }
 }

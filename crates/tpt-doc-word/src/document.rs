@@ -162,6 +162,13 @@ impl DocxWriter {
                 r#"<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>"#,
             );
         }
+        for (url, id) in collect_links(doc)? {
+            let target = escape_xml_text(&url)?;
+            let _ = write!(
+                rels,
+                r#"<Relationship Id="{id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{target}" TargetMode="External"/>"#
+            );
+        }
         rels.push_str("</Relationships>");
 
         let mut parts: Vec<(&str, String)> = vec![
@@ -237,6 +244,74 @@ fn paragraph_xml(xml: &mut String, p: &Paragraph) -> Result<(), DocError> {
 }
 
 fn run_xml(xml: &mut String, run: &Run) -> Result<(), DocError> {
+    match &run.link {
+        Some(url) => {
+            let _ = write!(xml, r#"<w:hyperlink r:id="{}">"#, link_id(url));
+            run_body_xml(xml, run)?;
+            xml.push_str("</w:hyperlink>");
+            Ok(())
+        }
+        None => run_body_xml(xml, run),
+    }
+}
+
+/// The relationship id of an external link. It is derived from the address,
+/// so the same address always gets the same id and no index has to be
+/// threaded through the writer.
+fn link_id(url: &str) -> String {
+    // 64-bit FNV-1a: not cryptographic, but a document's links are few, and
+    // `collect_links` refuses a document whose links would collide.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in url.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("rIdL{hash:016x}")
+}
+
+/// Every distinct external address used by a run in the document, in order of
+/// first use, with the id each one gets. Fails if two addresses share an id.
+fn collect_links(doc: &DocxDocument) -> Result<Vec<(String, String)>, DocError> {
+    fn walk_paragraph(p: &Paragraph, out: &mut Vec<String>) {
+        for run in p.runs() {
+            if let Some(url) = &run.link
+                && !out.contains(url)
+            {
+                out.push(url.clone());
+            }
+        }
+    }
+    let mut urls = Vec::new();
+    for element in doc.body() {
+        match element {
+            BodyElement::Paragraph(p) => walk_paragraph(p, &mut urls),
+            BodyElement::Table(t) => {
+                for row in t.rows() {
+                    for cell in row.cells() {
+                        for p in cell.paragraphs() {
+                            walk_paragraph(p, &mut urls);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for url in urls {
+        let id = link_id(&url);
+        if let Some((other, _)) = pairs.iter().find(|(_, existing)| *existing == id)
+            && *other != url
+        {
+            return Err(DocError::invalid_format(format!(
+                "links {other} and {url} collide on relationship id {id}"
+            )));
+        }
+        pairs.push((url, id));
+    }
+    Ok(pairs)
+}
+
+fn run_body_xml(xml: &mut String, run: &Run) -> Result<(), DocError> {
     xml.push_str("<w:r>");
     let style = &run.style;
     if style.bold || style.italic || style.underline || style.font_size_half_points.is_some() {
@@ -270,6 +345,9 @@ fn run_xml(xml: &mut String, run: &Run) -> Result<(), DocError> {
     Ok(())
 }
 
+/// The width of a column that was not given one: 2340 twips (1.625 inches).
+const DEFAULT_COLUMN_TWIPS: u16 = 2340;
+
 fn table_xml(xml: &mut String, table: &Table) -> Result<(), DocError> {
     xml.push_str("<w:tbl><w:tblPr>");
     match table.borders {
@@ -298,7 +376,7 @@ fn table_xml(xml: &mut String, table: &Table) -> Result<(), DocError> {
     xml.push_str("<w:tblGrid>");
     if table.column_widths_twips.is_empty() {
         for _ in 0..columns {
-            xml.push_str(r#"<w:gridCol w:w="2340"/>"#);
+            let _ = write!(xml, r#"<w:gridCol w:w="{DEFAULT_COLUMN_TWIPS}"/>"#);
         }
     } else {
         for width in &table.column_widths_twips {
@@ -310,7 +388,15 @@ fn table_xml(xml: &mut String, table: &Table) -> Result<(), DocError> {
     for row in table.rows() {
         xml.push_str("<w:tr>");
         for (index, cell) in row.cells().iter().enumerate() {
-            let width = table.column_widths_twips.get(index).copied();
+            // The cell carries the width its grid column has, so a table that
+            // was written without widths reads back and writes the same way.
+            let width = Some(
+                table
+                    .column_widths_twips
+                    .get(index)
+                    .copied()
+                    .unwrap_or(DEFAULT_COLUMN_TWIPS),
+            );
             cell_xml(xml, cell, width)?;
         }
         xml.push_str("</w:tr>");
