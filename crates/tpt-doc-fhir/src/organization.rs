@@ -13,6 +13,10 @@ pub struct Organization {
     /// Resource type discriminant — always `"Organization"`.
     #[serde(rename = "resourceType")]
     resource_type: String,
+    /// Elements this model does not represent (for example `extension`,
+    /// `meta`, `text`), kept as read so that a JSON round trip loses nothing.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub unmodelled: serde_json::Map<String, serde_json::Value>,
     /// Logical id of the resource.
     pub id: String,
     /// Whether the organization is still operational.
@@ -105,6 +109,7 @@ impl OrganizationBuilder<HasName> {
     pub fn build(self) -> Organization {
         Organization {
             resource_type: "Organization".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id,
             active: self.active,
             name: self.name.0,
@@ -232,6 +237,7 @@ impl OrganizationDraft {
         })?;
         Ok(Organization {
             resource_type: "Organization".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id,
             active: self.active,
             name,

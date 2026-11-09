@@ -13,6 +13,10 @@ pub struct Patient {
     /// Resource type discriminant — always `"Patient"`.
     #[serde(rename = "resourceType")]
     resource_type: String,
+    /// Elements this model does not represent (for example `extension`,
+    /// `meta`, `text`), kept as read so that a JSON round trip loses nothing.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub unmodelled: serde_json::Map<String, serde_json::Value>,
     /// Logical id of the resource.
     pub id: String,
     /// A name associated with the patient.
@@ -74,6 +78,7 @@ impl Patient {
             FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
         })?;
         crate::types::check_resource_type(&resource.resource_type, "Patient")?;
+        resource.check_dates()?;
         Ok(resource)
     }
 
@@ -141,7 +146,9 @@ impl Patient {
     pub fn from_xml_with_limits(bytes: &[u8], limits: Limits) -> Result<Self, FhirValidationError> {
         let mut draft = PatientDraft::default();
         crate::xml::read_resource(bytes, &limits, "Patient", &mut draft)?;
-        Ok(draft.finish())
+        let patient = draft.finish();
+        patient.check_dates()?;
+        Ok(patient)
     }
 }
 
@@ -231,6 +238,7 @@ impl PatientDraft {
     fn finish(self) -> Patient {
         Patient {
             resource_type: "Patient".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id,
             name: self.names,
             identifier: self.identifiers,
@@ -312,6 +320,7 @@ impl PatientBuilder<HasId> {
     pub fn build(self) -> Patient {
         Patient {
             resource_type: "Patient".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id.0,
             name: self.name,
             identifier: self.identifier,
@@ -333,6 +342,19 @@ impl crate::xml::DraftReader for PatientDraft {
 
     fn close(&mut self, path: &[String]) {
         self.end(path);
+    }
+}
+
+impl Patient {
+    /// Check the date fields: `birthDate` is a FHIR `date`.
+    ///
+    /// # Errors
+    /// Returns an error naming the field if a date is malformed.
+    pub(crate) fn check_dates(&self) -> Result<(), FhirValidationError> {
+        match &self.birth_date {
+            Some(date) => crate::types::check_date("/birthDate", date),
+            None => Ok(()),
+        }
     }
 }
 

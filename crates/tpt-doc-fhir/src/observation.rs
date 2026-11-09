@@ -16,6 +16,10 @@ pub struct Observation {
     /// Resource type discriminant — always `"Observation"`.
     #[serde(rename = "resourceType")]
     resource_type: String,
+    /// Elements this model does not represent (for example `extension`,
+    /// `meta`, `text`), kept as read so that a JSON round trip loses nothing.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub unmodelled: serde_json::Map<String, serde_json::Value>,
     /// Logical id of the resource.
     pub id: String,
     /// Lifecycle status of the result (mandatory).
@@ -135,6 +139,7 @@ impl Observation {
             FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
         })?;
         crate::types::check_resource_type(&resource.resource_type, "Observation")?;
+        resource.check_dates()?;
         Ok(resource)
     }
 
@@ -190,7 +195,9 @@ impl Observation {
     pub fn from_xml_with_limits(bytes: &[u8], limits: Limits) -> Result<Self, FhirValidationError> {
         let mut draft = ObservationDraft::default();
         crate::xml::read_resource(bytes, &limits, "Observation", &mut draft)?;
-        draft.finish()
+        let observation = draft.finish()?;
+        observation.check_dates()?;
+        Ok(observation)
     }
 }
 
@@ -329,6 +336,7 @@ impl ObservationDraft {
         })?;
         Ok(Observation {
             resource_type: "Observation".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id,
             status,
             code: self.code,
@@ -514,6 +522,7 @@ impl ObservationBuilder<Set<ObservationStatus>, Set<CodeableConcept>> {
     pub fn build(self) -> Observation {
         Observation {
             resource_type: "Observation".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id,
             status: self.status.0,
             code: self.code.0,
@@ -536,6 +545,19 @@ impl crate::xml::DraftReader for ObservationDraft {
 
     fn close(&mut self, path: &[String]) {
         self.end(path);
+    }
+}
+
+impl Observation {
+    /// Check the date fields: `effectiveDateTime` is a FHIR `dateTime`.
+    ///
+    /// # Errors
+    /// Returns an error naming the field if a date-time is malformed.
+    pub(crate) fn check_dates(&self) -> Result<(), FhirValidationError> {
+        match &self.effective_date_time {
+            Some(value) => crate::types::check_date_time("/effectiveDateTime", value),
+            None => Ok(()),
+        }
     }
 }
 

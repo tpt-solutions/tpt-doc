@@ -179,3 +179,132 @@ pub(crate) fn check_resource_type(
         format!("expected `resourceType: \"{expected}\"`, found `{actual}`"),
     ))
 }
+
+/// Check an FHIR `date`: `YYYY`, `YYYY-MM` or `YYYY-MM-DD`, with a real month
+/// and day (leap years included).
+///
+/// # Errors
+/// Returns an error naming `field` if the value is not such a date.
+pub(crate) fn check_date(
+    field: &str,
+    value: &str,
+) -> Result<(), crate::validate::FhirValidationError> {
+    if is_date(value) {
+        Ok(())
+    } else {
+        Err(date_error(
+            field,
+            value,
+            "a date (YYYY, YYYY-MM or YYYY-MM-DD)",
+        ))
+    }
+}
+
+/// Check an FHIR `dateTime`: a date, optionally followed by `T`, a time
+/// (`hh:mm`, `hh:mm:ss` or with fractional seconds) and a timezone (`Z` or
+/// `±hh:mm`).
+///
+/// # Errors
+/// Returns an error naming `field` if the value is not such a date-time.
+pub(crate) fn check_date_time(
+    field: &str,
+    value: &str,
+) -> Result<(), crate::validate::FhirValidationError> {
+    if is_date_time(value) {
+        Ok(())
+    } else {
+        Err(date_error(field, value, "a dateTime"))
+    }
+}
+
+fn date_error(field: &str, value: &str, expected: &str) -> crate::validate::FhirValidationError {
+    crate::validate::FhirValidationError::new(field, format!("`{value}` is not {expected}"))
+}
+
+fn is_date(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('-').collect();
+    let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
+    match parts.as_slice() {
+        [year] => digits(year, 4),
+        [year, month] => {
+            digits(year, 4)
+                && digits(month, 2)
+                && (1..=12).contains(&month.parse::<u32>().unwrap_or(0))
+        }
+        [year, month, day] => {
+            if !(digits(year, 4) && digits(month, 2) && digits(day, 2)) {
+                return false;
+            }
+            let (Ok(y), Ok(m), Ok(d)) = (
+                year.parse::<u32>(),
+                month.parse::<u32>(),
+                day.parse::<u32>(),
+            ) else {
+                return false;
+            };
+            (1..=12).contains(&m) && d >= 1 && d <= days_in_month(y, m)
+        }
+        _ => false,
+    }
+}
+
+fn is_date_time(value: &str) -> bool {
+    let (date, rest) = match value.split_once('T') {
+        Some((date, rest)) => (date, Some(rest)),
+        None => (value, None),
+    };
+    if !is_date(date) {
+        return false;
+    }
+    let Some(rest) = rest else {
+        return true;
+    };
+    // Split the timezone off the time: `Z`, or a `+`/`-` offset.
+    let (time, zone) = match rest.find(['Z', '+', '-']) {
+        Some(at) => (&rest[..at], &rest[at..]),
+        None => (rest, ""),
+    };
+    let zone_ok = match zone {
+        "" | "Z" => true,
+        offset => {
+            let body = &offset[1..];
+            body.len() == 5
+                && body.as_bytes()[2] == b':'
+                && body[..2].parse::<u32>().is_ok_and(|h| h <= 14)
+                && body[3..].parse::<u32>().is_ok_and(|m| m <= 59)
+        }
+    };
+    let (clock, fraction) = match time.split_once('.') {
+        Some((clock, fraction)) => (clock, Some(fraction)),
+        None => (time, None),
+    };
+    let fraction_ok =
+        fraction.is_none_or(|f| !f.is_empty() && f.bytes().all(|b| b.is_ascii_digit()));
+    let fields: Vec<&str> = clock.split(':').collect();
+    let clock_ok = match fields.as_slice() {
+        [h, m] | [h, m, _] => {
+            let hour = h.parse::<u32>().ok();
+            let minute = m.parse::<u32>().ok();
+            h.len() == 2
+                && m.len() == 2
+                && hour.is_some_and(|x| x <= 23)
+                && minute.is_some_and(|x| x <= 59)
+                && fields
+                    .get(2)
+                    .is_none_or(|s| s.len() == 2 && s.parse::<u32>().is_ok_and(|x| x <= 60))
+        }
+        _ => false,
+    };
+    zone_ok && fraction_ok && clock_ok
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year.is_multiple_of(400) || (year.is_multiple_of(4) && !year.is_multiple_of(100)) => {
+            29
+        }
+        _ => 28,
+    }
+}

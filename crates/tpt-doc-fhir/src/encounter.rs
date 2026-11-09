@@ -14,6 +14,10 @@ pub struct Encounter {
     /// Resource type discriminant — always `"Encounter"`.
     #[serde(rename = "resourceType")]
     resource_type: String,
+    /// Elements this model does not represent (for example `extension`,
+    /// `meta`, `text`), kept as read so that a JSON round trip loses nothing.
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub unmodelled: serde_json::Map<String, serde_json::Value>,
     /// Logical id of the resource.
     pub id: String,
     /// Lifecycle status of the encounter (mandatory).
@@ -107,6 +111,7 @@ impl Encounter {
             FhirValidationError::new("/", format!("JSON deserialization failed: {e}"))
         })?;
         crate::types::check_resource_type(&resource.resource_type, "Encounter")?;
+        resource.check_dates()?;
         Ok(resource)
     }
 }
@@ -213,12 +218,31 @@ impl EncounterBuilder<Set<EncounterStatus>, Set<Coding>> {
     pub fn build(self) -> Encounter {
         Encounter {
             resource_type: "Encounter".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id,
             status: self.status.0,
             class: self.class.0,
             subject: self.subject,
             period: self.period,
         }
+    }
+}
+
+impl Encounter {
+    /// Check the date fields: the period bounds are FHIR `dateTime`s.
+    ///
+    /// # Errors
+    /// Returns an error naming the field if a date-time is malformed.
+    pub(crate) fn check_dates(&self) -> Result<(), FhirValidationError> {
+        if let Some(period) = &self.period {
+            if let Some(start) = &period.start {
+                crate::types::check_date_time("/period/start", start)?;
+            }
+            if let Some(end) = &period.end {
+                crate::types::check_date_time("/period/end", end)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -345,7 +369,9 @@ impl Encounter {
     ) -> Result<Self, FhirValidationError> {
         let mut draft = EncounterDraft::default();
         crate::xml::read_resource(bytes, &limits, "Encounter", &mut draft)?;
-        draft.finish()
+        let encounter = draft.finish()?;
+        encounter.check_dates()?;
+        Ok(encounter)
     }
 }
 
@@ -461,6 +487,7 @@ impl EncounterDraft {
         };
         Ok(Encounter {
             resource_type: "Encounter".into(),
+            unmodelled: serde_json::Map::new(),
             id: self.id,
             status: self.status.ok_or_else(|| missing("status"))?,
             class: self.class.ok_or_else(|| missing("class"))?,

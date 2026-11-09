@@ -17,6 +17,17 @@ fn arb_text(max: usize) -> impl Strategy<Value = String> {
     any::<String>().prop_filter("json-safe text", move |s| json_safe(s) && s.len() < max)
 }
 
+/// A valid FHIR `date`, so the round-trip checks the date fields as data
+/// rather than rejecting arbitrary text (invalid dates are tested directly).
+fn arb_date() -> impl Strategy<Value = String> {
+    (1900u32..2100, 1u32..=12, 1u32..=28).prop_map(|(y, m, d)| format!("{y:04}-{m:02}-{d:02}"))
+}
+
+/// A valid FHIR `dateTime`: a date with a UTC time.
+fn arb_date_time() -> impl Strategy<Value = String> {
+    (arb_date(), 0u32..24, 0u32..60).prop_map(|(date, h, m)| format!("{date}T{h:02}:{m:02}:00Z"))
+}
+
 fn arb_gender() -> impl Strategy<Value = Gender> {
     prop_oneof![
         Just(Gender::Male),
@@ -59,7 +70,7 @@ proptest! {
         family in arb_text(32),
         given in arb_text(32),
         gender in arb_gender(),
-        birth_date in arb_text(10),
+        birth_date in arb_date(),
     ) {
         let patient = Patient::builder()
             .id(id.clone())
@@ -95,8 +106,8 @@ proptest! {
         id in arb_text(32),
         status in arb_encounter_status(),
         class_code in arb_text(8),
-        start in arb_text(10),
-        end in arb_text(10),
+        start in arb_date_time(),
+        end in arb_date_time(),
     ) {
         let encounter = Encounter::builder()
             .id(id.clone())
