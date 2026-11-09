@@ -506,7 +506,7 @@ mod tests {
         assert!(cert.check_validity(cert.not_before).is_ok(), "notBefore");
         assert!(cert.check_validity(cert.not_after).is_ok(), "notAfter");
         assert!(
-            cert.check_validity((cert.not_before + cert.not_after) / 2)
+            cert.check_validity(cert.not_before.midpoint(cert.not_after))
                 .is_ok(),
             "mid-window"
         );

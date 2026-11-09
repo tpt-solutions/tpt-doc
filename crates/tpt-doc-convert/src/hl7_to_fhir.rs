@@ -311,10 +311,10 @@ impl Ctx {
             .field(14)
             .filter(|v| !v.is_empty())
             .or(obr_time.filter(|v| !v.is_empty()));
-        if let Some(raw) = effective {
-            if let Some(dt) = self.datetime(raw, "OBX-14/OBR-7") {
-                builder = builder.effective_date_time(dt);
-            }
+        if let Some(raw) = effective
+            && let Some(dt) = self.datetime(raw, "OBX-14/OBR-7")
+        {
+            builder = builder.effective_date_time(dt);
         }
         Some(builder.build())
     }
