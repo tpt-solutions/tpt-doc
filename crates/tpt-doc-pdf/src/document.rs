@@ -94,7 +94,7 @@ impl Document {
     /// # Errors
     /// Returns [`DocError`] on serialization failure, or if a page references a
     /// font or image id that was never embedded.
-    pub fn write(self) -> Result<Vec<u8>, DocError> {
+    pub fn write(&self) -> Result<Vec<u8>, DocError> {
         self.validate_references()?;
         let mut writer = ObjectWriter::new();
 

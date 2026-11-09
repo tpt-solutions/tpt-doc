@@ -560,7 +560,9 @@ fn build_update(
     );
 
     // New xref for the incremental update, chained via /Prev.
-    let xref_offset = update.len();
+    // The offset is absolute, like the object offsets above: it counts from the
+    // start of the file, not from the start of the appended update.
+    let xref_offset = pdf_bytes.len() + update.len();
     update.extend_from_slice(b"xref\n");
     // A subsection header declares a contiguous run `first first+count`, so the
     // entries are sorted by object number and grouped. The catalog is normally

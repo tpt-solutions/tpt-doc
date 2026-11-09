@@ -21,12 +21,15 @@
 
 /// The declarative PDF document model.
 pub mod document;
+/// Text extraction from PDF files (classic structure, Flate streams).
+pub mod extract;
 /// Font handling and built-in Type1 fonts.
 pub mod font;
 /// Raster image embedding (JPEG passthrough, PNG transcoding).
 pub mod image;
 /// Page geometry and content streams.
 pub mod page;
+mod traits;
 /// Cross-reference table construction and serialization.
 pub mod xref;
 
