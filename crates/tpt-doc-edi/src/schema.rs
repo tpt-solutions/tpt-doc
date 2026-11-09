@@ -134,38 +134,35 @@ pub struct ElementTables {
 
 impl ElementTables {
     /// Build tables from an embedded TSV string.
-    #[must_use]
-    pub fn parse(tsv: &'static str) -> Self {
+    /// # Errors
+    /// Returns an error naming the line for any malformed row.
+    pub fn from_tsv(tsv: &str) -> Result<Self, DocError> {
         let mut by_segment: HashMap<String, Vec<ElementDef>> = HashMap::new();
-        for line in tsv.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let cols: Vec<&str> = line.split('\t').collect();
-            if cols.len() < 6 {
-                continue;
-            }
-            let (Some(pos), Some(kind), Some(min), Some(max)) = (
-                cols[1].parse::<u16>().ok(),
-                ElemKind::parse(cols[2]),
-                cols[3].parse::<u16>().ok(),
-                cols[4].parse::<u16>().ok(),
-            ) else {
-                continue;
+        for row in tpt_doc_core::tsv::rows(tsv) {
+            row.expect_columns(6)?;
+            let kind = ElemKind::parse(row.columns[2])
+                .ok_or_else(|| row.error(format!("unknown element type `{}`", row.columns[2])))?;
+            let required = match row.columns[5] {
+                "M" => true,
+                "C" | "O" => false,
+                other => {
+                    return Err(
+                        row.error(format!("requirement must be M, C or O, found `{other}`"))
+                    );
+                }
             };
             by_segment
-                .entry(cols[0].to_owned())
+                .entry(row.columns[0].to_owned())
                 .or_default()
                 .push(ElementDef {
-                    position: pos,
+                    position: row.parse_u16(1)?,
                     kind,
-                    min,
-                    max,
-                    required: cols[5] == "M",
+                    min: row.parse_u16(3)?,
+                    max: row.parse_u16(4)?,
+                    required,
                 });
         }
-        Self { by_segment }
+        Ok(Self { by_segment })
     }
 
     /// Validate one EDIFACT segment against the table.
@@ -654,27 +651,28 @@ pub struct TransactionTables {
 
 impl TransactionTables {
     /// Build tables from an embedded TSV string: `set \t segment \t req`.
-    #[must_use]
-    pub fn parse(tsv: &'static str) -> Self {
+    /// # Errors
+    /// Returns an error naming the line for any malformed row.
+    pub fn from_tsv(tsv: &str) -> Result<Self, DocError> {
         let mut by_set: HashMap<String, Vec<SegmentRequirement>> = HashMap::new();
-        for line in tsv.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let cols: Vec<&str> = line.split('\t').collect();
-            if cols.len() < 3 {
-                continue;
-            }
+        for row in tpt_doc_core::tsv::rows(tsv) {
+            row.expect_columns(3)?;
+            let required = match row.columns[2] {
+                "M" => true,
+                "O" => false,
+                other => {
+                    return Err(row.error(format!("requirement must be M or O, found `{other}`")));
+                }
+            };
             by_set
-                .entry(cols[0].to_owned())
+                .entry(row.columns[0].to_owned())
                 .or_default()
                 .push(SegmentRequirement {
-                    segment: cols[1].to_owned(),
-                    required: cols[2] == "M",
+                    segment: row.columns[1].to_owned(),
+                    required,
                 });
         }
-        Self { by_set }
+        Ok(Self { by_set })
     }
 
     /// Validate a transaction set: all `M` segments present, `ST` first,
@@ -738,20 +736,29 @@ impl TransactionTables {
 ///
 /// Parse-on-demand because `HashMap` construction is not `const`.
 #[must_use]
+/// # Panics
+/// Panics only if the embedded table is malformed; the crate's tests load it.
 pub fn edifact_d96a() -> ElementTables {
-    ElementTables::parse(include_str!("../schemas/edifact/d96a_segments.tsv"))
+    ElementTables::from_tsv(include_str!("../schemas/edifact/d96a_segments.tsv"))
+        .expect("embedded EDIFACT D.96A table is well formed")
 }
 
 /// Load the embedded X12 element tables.
 #[must_use]
+/// # Panics
+/// Panics only if the embedded table is malformed; the crate's tests load it.
 pub fn x12_elements() -> ElementTables {
-    ElementTables::parse(include_str!("../schemas/x12/segments.tsv"))
+    ElementTables::from_tsv(include_str!("../schemas/x12/segments.tsv"))
+        .expect("embedded X12 element table is well formed")
 }
 
 /// Load the embedded X12 transaction-set tables.
 #[must_use]
+/// # Panics
+/// Panics only if the embedded table is malformed; the crate's tests load it.
 pub fn x12_transaction_sets() -> TransactionTables {
-    TransactionTables::parse(include_str!("../schemas/x12/transaction_sets.tsv"))
+    TransactionTables::from_tsv(include_str!("../schemas/x12/transaction_sets.tsv"))
+        .expect("embedded X12 transaction table is well formed")
 }
 
 /// Convenience: validate EDIFACT against the embedded D.96A tables.

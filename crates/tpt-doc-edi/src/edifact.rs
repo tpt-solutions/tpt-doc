@@ -2,6 +2,7 @@ use tpt_doc_core::DocError;
 
 /// A single EDIFACT segment, borrowing data from the original input.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Segment<'a> {
     tag: &'a str,
     elements: Vec<&'a str>,

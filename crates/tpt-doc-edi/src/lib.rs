@@ -23,6 +23,8 @@ pub mod edifact;
 pub mod schema;
 /// ANSI X12 streaming parser.
 pub mod x12;
+/// X12 `997` functional acknowledgments answering an interchange.
+pub mod x12_ack;
 
 pub use edifact::{EdifactParser, Segment};
 pub use schema::{ElementTables, SchemaViolation, TransactionTables, validate_x12_envelope};

@@ -16,6 +16,12 @@ rust-version.workspace = true
 [dependencies]
 tpt-doc-core = { workspace = true }
 memchr = { workspace = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 proptest = { workspace = true }
+
+[features]
+# Serialize the models with serde (off by default).
+serde = ["dep:serde"]
