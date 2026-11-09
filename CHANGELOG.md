@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tpt_doc_edi::x12_ack::build_999` and `parse_999`: X12 999 implementation acknowledgments (IK5 responses), sharing the 997 envelope code; a set with no response is refused
+- `tpt_doc_edi::x12_856::parse_856`: X12 856 advance ship notices (shipment header, item levels, CTT check), read-only
+- `tpt_doc_edi::x12_810::parse_810`: X12 810 invoices (header, buyer, lines, total in cents), read-only
+- `tpt_doc_edi::x12_850::parse_850`: X12 850 purchase orders (header, buyer, lines, CTT check), read-only
+- `tpt_doc_pdf::extract`: text extraction for classic-structure PDFs (xref table, `/Prev` chains, Flate streams, page tree); runs on one line are joined, and a new line starts when the position moves
+- `tpt_doc_edi::edifact_ack`: EDIFACT CONTRL acknowledgments (interchange level), built and read back
 - `tpt_doc_edi::x12_ack::parse_997`: reads a 997, checking AK9 counts against the sets listed
 - `tpt_doc_hl7v2::batch`: HL7 v2 batches (BHS/BTS) built and read back; the BTS count must match
 - `tpt_doc_edi::x12_ack::build_997`: X12 997 functional acknowledgments (swapped envelope, AK1/AK2/AK5/AK9)
@@ -46,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial workspace scaffold with 7 crate skeletons
 - GitHub Actions CI (fmt, clippy, deny, test, coverage)
 - mdBook documentation skeleton
+
+### Fixed
+- PAdES incremental updates wrote a `startxref` relative to the appended update instead of the file, so readers that follow the trailer chain could not find the new xref table. Found by the text extractor; a regression test now checks it.
 
 ### Changed
 - Patient and Observation XML readers now use the shared `xml::read_resource` driver
