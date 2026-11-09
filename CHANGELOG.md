@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `tpt_doc_edi::x12_ack::parse_997`: reads a 997, checking AK9 counts against the sets listed
+- `tpt_doc_hl7v2::batch`: HL7 v2 batches (BHS/BTS) built and read back; the BTS count must match
+- `tpt_doc_edi::x12_ack::build_997`: X12 997 functional acknowledgments (swapped envelope, AK1/AK2/AK5/AK9)
+- `tpt_doc_hl7v2::encode::escape_text`, the free-text escaper, now public
+- `tpt_doc_hl7v2::ack`: HL7 v2 acknowledgments (AA/AE/AR) that swap the parties,
+  name the original control ID in MSA-2, and escape free text
+- `tpt_doc_hl7v2::mllp`: MLLP framing; `unframe` refuses truncated frames and stray bytes
+- `Message::push_escaped_segment` for fields the caller has already escaped
+- `templates/`: a gallery of five worked examples (HL7 to FHIR, X12 835 summary,
+  UBL to Factur-X, CSV to XLSX, HTML to a PAdES-signed PDF), each checked against
+  a golden output by `tpt-doc-templates`
+- `CsvReader::headers`
+- `tpt-doc-audit`: a tamper-evident audit log (SHA-256 hash chain, JSON Lines
+  persistence that refuses edited files, and a CAdES seal over the head)
+- `tpt-doc-core::tsv`: a strict reader for schema tables; `from_tsv` loaders
+  for HL7 segment tables and EDIFACT/X12 element and transaction tables
+- FHIR XML for `Encounter` and `Organization`
+- `tpt-doc-mcp`: a Model Context Protocol server (`tpt-mcp` binary) exposing
+  `validate_document`, `convert_hl7_to_fhir`, `extract_text`, and
+  `generate_invoice` over stdio
+- `tpt-doc-ooxml`: internal crate shared by the XLSX and DOCX writers and
+  readers (`PackageWriter`, `open_archive`, `read_part`)
+- `DocReader`, `DocWriter`, and `Validate` implemented for `Invoice`,
+  the FHIR resources, and `DocxDocument`
+- serde models: spreadsheet `Cell`/`Row`, the Word model, and (behind a
+  `serde` feature) HL7 v2 `Message`, EDIFACT `Segment` (serialize only), and
+  the PDF `Document`
 - `tpt_doc_core::Limits` with bounded `read_to_end`, `check_rows`, and
   `check_xml_depth`; enforced in the `.xlsx` and `.docx` ZIP readers, the
   PNG IDAT inflate, and the XML parsers in spreadsheet, word, ubl, and fhir
@@ -21,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - mdBook documentation skeleton
 
 ### Changed
+- Patient and Observation XML readers now use the shared `xml::read_resource` driver
 - Workspace expanded from 7 to 10 crates: `tpt-doc-word` (.docx OOXML),
   `tpt-doc-ubl` (UBL 2.1/PEPPOL BIS e-invoicing), `tpt-doc-hl7v2`
   (streaming HL7 v2.x)
