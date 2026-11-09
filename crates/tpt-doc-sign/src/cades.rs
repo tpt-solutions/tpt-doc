@@ -61,6 +61,36 @@ pub fn sign_detached_at(
     rng: &dyn SecureRandom,
     unix_seconds: i64,
 ) -> Result<Vec<u8>, DocError> {
+    sign_detached_with_chain(data, key, cert_der, &[], rng, unix_seconds)
+}
+
+/// Create a `CAdES-BES` detached signature that also carries the certificate
+/// chain above the signer, so a verifier that has only the root can build the
+/// path.
+///
+/// `intermediates` are the DER certificates between the signer and the trust
+/// anchor, in order from the signer upwards. Each must parse as a certificate.
+/// The root is not embedded: it is the verifier's trust anchor, not part of
+/// the signature. The signer's own validity and key match are checked as in
+/// [`sign_detached_at`].
+///
+/// # Errors
+/// As [`sign_detached_at`], and if an intermediate certificate does not parse.
+pub fn sign_detached_with_chain(
+    data: &[u8],
+    key: &PrivateKey,
+    cert_der: &[u8],
+    intermediates: &[&[u8]],
+    rng: &dyn SecureRandom,
+    unix_seconds: i64,
+) -> Result<Vec<u8>, DocError> {
+    for (index, intermediate) in intermediates.iter().enumerate() {
+        parse_x509_certificate(intermediate).map_err(|e| {
+            DocError::invalid_format(format!(
+                "intermediate certificate {index} is unparsable: {e}"
+            ))
+        })?;
+    }
     // A key that is not the private half of the embedded certificate still
     // produces a well-formed CMS whose signature no verifier can attribute to
     // that certificate. Failing here is far cheaper to diagnose than a rejected
@@ -94,11 +124,17 @@ pub fn sign_detached_at(
     .concat();
     let signer_info = der::sequence(&signer_info_body);
 
+    // The signer first, then the intermediates in the order they were given.
+    let certificates: Vec<u8> = std::iter::once(cert_der)
+        .chain(intermediates.iter().copied())
+        .flatten()
+        .copied()
+        .collect();
     let signed_data_body = [
         der::integer(&[1]),
         der::set_of(&digest_algorithm_sha256()?),
         encapsulated_content_info_detached()?,
-        der::context_constructed(0, cert_der),
+        der::context_constructed(0, &certificates),
         der::set_of(&signer_info),
     ]
     .concat();
