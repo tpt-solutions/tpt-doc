@@ -11,6 +11,7 @@ use crate::{Font, Page};
 
 /// A file attached to the document (PDF 2.0 §7.11.3 associated files).
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Attachment {
     /// File name as shown to readers (e.g. `"factur-x.xml"`).
     pub name: String,
@@ -24,6 +25,7 @@ pub struct Attachment {
 /// A PDF document: the root object that owns pages, fonts, images, and
 /// file attachments.
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Document {
     pages: Vec<Page>,
     fonts: Vec<Font>,

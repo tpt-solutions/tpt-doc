@@ -450,17 +450,32 @@ fn deterministic_structure_snapshot() {
     let bytes = sample_document().write().expect("write");
     // Snapshot the document skeleton: object header lines and stream
     // dictionaries — deterministic and human-reviewable, unlike the raw
-    // bytes with their compressed streams.
+    // bytes with their compressed streams. Line indices and `/Length` values
+    // depend on the deflate backend (CI resolves a different `miniz_oxide`
+    // than a local lockfile), so they are left out of the snapshot.
     let mut skeleton = String::new();
-    for (index, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
+    for line in String::from_utf8_lossy(&bytes).lines() {
         if line.ends_with(" 0 obj")
             || line.starts_with("<< /Type")
             || line.starts_with("<< /Length")
         {
-            skeleton.push_str(&format!("{index}: {line}\n"));
+            skeleton.push_str(&normalise_length(line));
+            skeleton.push('\n');
         }
     }
     insta::assert_snapshot!(skeleton);
+}
+
+/// Replace the number after `/Length` with `N`, since compressed stream
+/// sizes vary with the deflate implementation.
+fn normalise_length(line: &str) -> String {
+    match line.split_once("/Length ") {
+        Some((before, after)) => {
+            let rest = after.trim_start_matches(|c: char| c.is_ascii_digit());
+            format!("{before}/Length N{rest}")
+        }
+        None => line.to_string(),
+    }
 }
 
 /// A grayscale JPEG declared as `/DeviceRGB` renders the wrong colours, so

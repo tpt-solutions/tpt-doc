@@ -14,6 +14,7 @@ use tpt_doc_core::Limits;
 
 /// The stream filter of an embedded image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ImageFilter {
     /// JPEG data, embedded verbatim.
     DctDecode,
@@ -23,6 +24,7 @@ pub enum ImageFilter {
 
 /// An embeddable raster image.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Image {
     /// Pixel width.
     pub width: u32,
@@ -125,7 +127,7 @@ impl Image {
                     color_type = c;
                 }
                 b"PLTE" => {
-                    palette = data.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+                    palette = data.as_chunks::<3>().0.to_vec();
                 }
                 b"IDAT" => idat.extend_from_slice(data),
                 b"IEND" => break,
@@ -362,6 +364,7 @@ fn to_rgb(
 
 /// The colour space declared by an image `XObject` dictionary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ColorSpace {
     /// One sample per pixel (`/DeviceGray`).
     Gray,

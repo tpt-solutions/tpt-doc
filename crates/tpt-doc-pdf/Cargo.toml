@@ -16,8 +16,15 @@ rust-version.workspace = true
 [dependencies]
 tpt-doc-core = { workspace = true }
 flate2 = { workspace = true }
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 proptest = { workspace = true }
 insta = { workspace = true }
 flate2 = { workspace = true }
+
+[features]
+# Serialize the document model with serde (off by default). `write()` still
+# validates references, so a deserialized document is checked before output.
+serde = ["dep:serde"]

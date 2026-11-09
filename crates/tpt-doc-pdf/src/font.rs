@@ -1,5 +1,6 @@
 /// The 14 standard PDF built-in fonts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Font {
     /// Helvetica (sans-serif).
     Helvetica,

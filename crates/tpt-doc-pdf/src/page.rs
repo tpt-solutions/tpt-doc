@@ -1,5 +1,6 @@
 /// A single PDF page with a content stream.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Page {
     /// Page width in points (1 pt = 1/72 inch).
     pub width: f32,
@@ -10,6 +11,7 @@ pub struct Page {
 
 /// A PDF content stream operation.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) enum ContentOp {
     Text {
         content: String,
