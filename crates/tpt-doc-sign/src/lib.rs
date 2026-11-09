@@ -14,6 +14,8 @@ pub mod pades;
 /// PEM decoding, the RSA [`pem::PrivateKey`](crate::pem::PrivateKey) handle,
 /// and [`pem::Certificate`](crate::pem::Certificate).
 pub mod pem;
+/// Verification of CAdES detached signatures.
+pub mod verify;
 /// `XAdES` enveloped XML signatures (`rsa-sha256`).
 pub mod xades;
 

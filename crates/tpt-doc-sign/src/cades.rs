@@ -7,7 +7,7 @@ use crate::der;
 use crate::pem::PrivateKey;
 
 /// OID arcs used in CMS/CAdES structures.
-mod oid {
+pub(crate) mod oid {
     pub const SIGNED_DATA: &str = "1.2.840.113549.1.7.2";
     pub const DATA: &str = "1.2.840.113549.1.7.1";
     pub const SHA256: &str = "2.16.840.1.101.3.4.2.1";
@@ -16,6 +16,8 @@ mod oid {
     pub const SIGNING_CERTIFICATE_V2: &str = "1.2.840.113549.1.9.16.2.47";
     pub const RSA_PSS: &str = "1.2.840.113549.1.1.10";
     pub const MGF1: &str = "1.2.840.113549.1.1.8";
+    pub const SHA256_WITH_RSA: &str = "1.2.840.113549.1.1.11";
+    pub const RSA_ENCRYPTION: &str = "1.2.840.113549.1.1.1";
 }
 
 /// Create a `CAdES-BES` detached signature over `data`.
@@ -120,7 +122,7 @@ fn issuer_and_serial(issuer_der: &[u8], serial: &[u8]) -> Vec<u8> {
 /// serial INTEGER, signature AlgorithmIdentifier, issuer Name, … } }` —
 /// walk those top-level TLVs inside the TBS certificate. (x509-parser 0.16
 /// leaves `X509Name::as_raw` empty on this parse path.)
-fn issuer_tlv(cert_der: &[u8]) -> Result<Vec<u8>, DocError> {
+pub(crate) fn issuer_tlv(cert_der: &[u8]) -> Result<Vec<u8>, DocError> {
     let err = || DocError::invalid_format("certificate issuer extraction failed");
     // Certificate SEQUENCE header; its content starts with the TBS.
     let (_, _, outer_header) = read_tlv(cert_der, 0).ok_or_else(err)?;
@@ -145,7 +147,7 @@ fn issuer_tlv(cert_der: &[u8]) -> Result<Vec<u8>, DocError> {
 }
 
 /// Read one TLV: returns (tag, content length, total header length).
-fn read_tlv(data: &[u8], pos: usize) -> Option<(u8, usize, usize)> {
+pub(crate) fn read_tlv(data: &[u8], pos: usize) -> Option<(u8, usize, usize)> {
     let tag = *data.get(pos)?;
     let first = *data.get(pos + 1)?;
     let (content_len, header_len) = if first & 0x80 == 0 {
