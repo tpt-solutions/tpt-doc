@@ -13,7 +13,10 @@
 //!
 //! Stream decompression is bounded by [`Limits::max_entry_bytes`].
 
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::io::Read as _;
+use std::rc::Rc;
 
 use flate2::read::ZlibDecoder;
 use tpt_doc_core::{DocError, Limits, Location};
@@ -377,10 +380,27 @@ fn parse_object(lex: &mut Lexer<'_>, first: Token, depth: usize) -> Result<Obj, 
 
 // ---------------------------------------------------------------- the file
 
+/// Where an object lives: at a byte offset, or as a member of an object stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Loc {
+    Offset(usize),
+    InStream { stream: u32, index: u32 },
+}
+
+/// A decoded object stream: its bytes, where its objects start, and the number
+/// and offset (relative to `first`) of each member.
+struct ObjectStream {
+    data: Vec<u8>,
+    first: usize,
+    members: Vec<(u32, usize)>,
+}
+
 struct PdfFile<'a> {
     data: &'a [u8],
-    /// Object number to byte offset, newest entry winning.
-    offsets: std::collections::HashMap<u32, usize>,
+    /// Object number to location, newest entry winning.
+    offsets: HashMap<u32, Loc>,
+    /// Object streams, decoded once each.
+    object_streams: RefCell<HashMap<u32, Rc<ObjectStream>>>,
     trailers: Vec<Obj>,
     limits: Limits,
 }
@@ -400,12 +420,13 @@ impl<'a> PdfFile<'a> {
 
         let mut file = Self {
             data,
-            offsets: std::collections::HashMap::new(),
+            offsets: HashMap::new(),
+            object_streams: RefCell::new(HashMap::new()),
             trailers: Vec::new(),
             limits: *limits,
         };
         let mut next = Some(offset);
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         while let Some(at) = next.take() {
             if !seen.insert(at) || file.trailers.len() > MAX_DEPTH {
                 return Err(invalid("cross-reference chain loops"));
@@ -423,12 +444,14 @@ impl<'a> PdfFile<'a> {
         Ok(file)
     }
 
+    /// Read the cross-reference section at `at`: a classic table, or a
+    /// cross-reference stream. Returns its trailer dictionary.
     fn read_xref_section(&mut self, at: usize) -> Result<Obj, DocError> {
         let mut lex = Lexer::new(self.data, at);
-        if lex.next_token()? != Token::Keyword("xref".into()) {
-            return Err(invalid(
-                "cross-reference streams and object streams are not supported",
-            ));
+        match lex.next_token()? {
+            Token::Keyword(word) if word == "xref" => {}
+            Token::Num(_) => return self.read_xref_stream(at),
+            _ => return Err(invalid("cross-reference table is missing")),
         }
         loop {
             let token = lex.next_token()?;
@@ -448,11 +471,13 @@ impl<'a> PdfFile<'a> {
                         else {
                             return Err(invalid("malformed xref entry"));
                         };
-                        let number = start + index;
+                        let number = start
+                            .checked_add(index)
+                            .ok_or_else(|| invalid("xref object number overflows"))?;
                         if kind == "n"
                             && let Some(offset) = to_usize(offset).filter(|o| *o > 0)
                         {
-                            self.offsets.entry(number).or_insert(offset);
+                            self.offsets.entry(number).or_insert(Loc::Offset(offset));
                         }
                     }
                 }
@@ -460,7 +485,102 @@ impl<'a> PdfFile<'a> {
             }
         }
         let trailer_token = lex.next_token()?;
-        parse_object(&mut lex, trailer_token, 0)
+        let trailer = parse_object(&mut lex, trailer_token, 0)?;
+        // A hybrid file keeps some entries in a cross-reference stream as well.
+        if let Some(Obj::Num(xref_stm)) = trailer.dict_get("XRefStm")
+            && let Some(offset) = to_usize(*xref_stm)
+        {
+            self.read_xref_stream(offset)?;
+        }
+        Ok(trailer)
+    }
+
+    /// Read a cross-reference stream (PDF 1.5). Its entries add locations, and
+    /// its dictionary is the trailer.
+    fn read_xref_stream(&mut self, at: usize) -> Result<Obj, DocError> {
+        let Obj::Stream(entries, data) = self.read_indirect(at, None, 0)? else {
+            return Err(invalid("cross-reference stream is not a stream"));
+        };
+        let dict = Obj::Dict(entries);
+        let widths: Vec<usize> = match dict.dict_get("W") {
+            Some(Obj::Arr(items)) if items.len() == 3 => items
+                .iter()
+                .map(|w| match w {
+                    Obj::Num(n) => to_usize(*n),
+                    _ => None,
+                })
+                .collect::<Option<_>>()
+                .ok_or_else(|| invalid("cross-reference /W is invalid"))?,
+            _ => return Err(invalid("cross-reference stream has no /W")),
+        };
+        if widths.iter().any(|w| *w > 8) {
+            return Err(invalid("cross-reference field is too wide"));
+        }
+        let size = match dict.dict_get("Size") {
+            Some(Obj::Num(n)) => {
+                to_u32(*n).ok_or_else(|| invalid("cross-reference /Size is invalid"))?
+            }
+            _ => return Err(invalid("cross-reference stream has no /Size")),
+        };
+        let index: Vec<u32> = match dict.dict_get("Index") {
+            Some(Obj::Arr(items)) => items
+                .iter()
+                .map(|i| match i {
+                    Obj::Num(n) => to_u32(*n),
+                    _ => None,
+                })
+                .collect::<Option<_>>()
+                .ok_or_else(|| invalid("cross-reference /Index is invalid"))?,
+            _ => vec![0, size],
+        };
+        if !index.len().is_multiple_of(2) {
+            return Err(invalid(
+                "cross-reference /Index has an odd number of entries",
+            ));
+        }
+        let row: usize = widths.iter().sum();
+        if row == 0 {
+            return Err(invalid("cross-reference rows are empty"));
+        }
+        let mut pos = 0usize;
+        for pair in index.chunks(2) {
+            let (start, count) = (pair[0], pair[1]);
+            for i in 0..count {
+                let end = pos
+                    .checked_add(row)
+                    .filter(|end| *end <= data.len())
+                    .ok_or_else(|| invalid("cross-reference stream is truncated"))?;
+                let fields = &data[pos..end];
+                pos = end;
+                let (w0, w1) = (widths[0], widths[1]);
+                // A type field of width zero means type 1 (a plain offset).
+                let kind = if w0 == 0 { 1 } else { be(&fields[..w0]) };
+                let primary = be(&fields[w0..w0 + w1]);
+                let tertiary = be(&fields[w0 + w1..]);
+                let number = start
+                    .checked_add(i)
+                    .ok_or_else(|| invalid("cross-reference object number overflows"))?;
+                match kind {
+                    1 => {
+                        if let (Ok(offset), true) = (usize::try_from(primary), primary > 0) {
+                            self.offsets.entry(number).or_insert(Loc::Offset(offset));
+                        }
+                    }
+                    2 => {
+                        if let (Ok(stream), Ok(index)) =
+                            (u32::try_from(primary), u32::try_from(tertiary))
+                        {
+                            self.offsets
+                                .entry(number)
+                                .or_insert(Loc::InStream { stream, index });
+                        }
+                    }
+                    // Type 0 is free, and unknown types are ignored, as the spec asks.
+                    _ => {}
+                }
+            }
+        }
+        Ok(dict)
     }
 
     fn trailer_ref(&self, key: &str) -> Result<u32, DocError> {
@@ -481,19 +601,36 @@ impl<'a> PdfFile<'a> {
         if depth > MAX_DEPTH {
             return Err(invalid("indirect objects reference each other in a loop"));
         }
-        let offset = *self
+        let loc = *self
             .offsets
             .get(&number)
             .ok_or_else(|| invalid(&format!("object {number} is not in the xref table")))?;
+        match loc {
+            Loc::Offset(offset) => self.read_indirect(offset, Some(number), depth),
+            Loc::InStream { stream, index } => self.object_in_stream(stream, index, number, depth),
+        }
+    }
+
+    /// Read the indirect object at `offset`. With `expected`, the object number
+    /// in the header must match it.
+    fn read_indirect(
+        &self,
+        offset: usize,
+        expected: Option<u32>,
+        depth: usize,
+    ) -> Result<Obj, DocError> {
         let mut lex = Lexer::new(self.data, offset);
         let header_number = lex.next_token()?;
         let _generation = lex.next_token()?;
         let keyword = lex.next_token()?;
-        if header_number != Token::Num(f64::from(number)) || keyword != Token::Keyword("obj".into())
-        {
-            return Err(DocError::invalid_format(format!(
-                "xref points at something other than object {number}"
-            ))
+        let number_ok = match expected {
+            Some(number) => header_number == Token::Num(f64::from(number)),
+            None => true,
+        };
+        if !number_ok || keyword != Token::Keyword("obj".into()) {
+            return Err(DocError::invalid_format(
+                "cross-reference points at something other than the expected object",
+            )
             .with_location(Location::Offset(offset as u64)));
         }
         let first = lex.next_token()?;
@@ -507,6 +644,78 @@ impl<'a> PdfFile<'a> {
             return Ok(Obj::Stream(entries, data));
         }
         Ok(object)
+    }
+
+    /// The object stream `stm`, decoded and indexed (cached after the first read).
+    fn object_stream(&self, stm: u32, depth: usize) -> Result<Rc<ObjectStream>, DocError> {
+        if let Some(found) = self.object_streams.borrow().get(&stm) {
+            return Ok(Rc::clone(found));
+        }
+        let Obj::Stream(entries, data) = self.get_at_depth(stm, depth + 1)? else {
+            return Err(invalid("object stream is not a stream"));
+        };
+        let dict = Obj::Dict(entries);
+        let count = match dict.dict_get("N") {
+            Some(Obj::Num(n)) => {
+                to_usize(*n).ok_or_else(|| invalid("object stream /N is invalid"))?
+            }
+            _ => return Err(invalid("object stream has no /N")),
+        };
+        let first = match dict.dict_get("First") {
+            Some(Obj::Num(n)) => {
+                to_usize(*n).ok_or_else(|| invalid("object stream /First is invalid"))?
+            }
+            _ => return Err(invalid("object stream has no /First")),
+        };
+        let mut lex = Lexer::new(&data, 0);
+        let mut members = Vec::with_capacity(count.min(data.len()));
+        for _ in 0..count {
+            let (Token::Num(number), Token::Num(offset)) = (lex.next_token()?, lex.next_token()?)
+            else {
+                return Err(invalid("malformed object stream header"));
+            };
+            let number =
+                to_u32(number).ok_or_else(|| invalid("object stream member number is invalid"))?;
+            let offset = to_usize(offset)
+                .ok_or_else(|| invalid("object stream member offset is invalid"))?;
+            members.push((number, offset));
+        }
+        let stream = Rc::new(ObjectStream {
+            data,
+            first,
+            members,
+        });
+        self.object_streams
+            .borrow_mut()
+            .insert(stm, Rc::clone(&stream));
+        Ok(stream)
+    }
+
+    /// Read object `number`, which is member `index` of object stream `stm`.
+    fn object_in_stream(
+        &self,
+        stm: u32,
+        index: u32,
+        number: u32,
+        depth: usize,
+    ) -> Result<Obj, DocError> {
+        let stream = self.object_stream(stm, depth)?;
+        let (member, offset) = usize::try_from(index)
+            .ok()
+            .and_then(|i| stream.members.get(i).copied())
+            .ok_or_else(|| invalid("object stream index is out of range"))?;
+        if member != number {
+            return Err(invalid(
+                "object stream member does not match the cross-reference",
+            ));
+        }
+        let start = stream
+            .first
+            .checked_add(offset)
+            .ok_or_else(|| invalid("object stream offset overflows"))?;
+        let mut lex = Lexer::new(&stream.data, start);
+        let first = lex.next_token()?;
+        parse_object(&mut lex, first, 0)
     }
 
     fn stream_data(
@@ -536,27 +745,31 @@ impl<'a> PdfFile<'a> {
             .checked_add(length)
             .filter(|end| *end <= self.data.len())
             .ok_or_else(|| invalid("stream runs past the end of the file"))?;
-        let raw = &self.data[start..end];
+        let mut data = self.data[start..end].to_vec();
 
-        let flate = entries
-            .iter()
-            .find(|(k, _)| k == "Filter")
-            .is_some_and(|(_, v)| matches!(v, Obj::Name(n) if n == "FlateDecode"));
-        if flate {
-            let mut decoded = Vec::new();
-            ZlibDecoder::new(raw)
-                .take(self.limits.max_entry_bytes as u64 + 1)
-                .read_to_end(&mut decoded)
-                .map_err(|e| invalid(&format!("cannot inflate stream: {e}")))?;
-            if decoded.len() > self.limits.max_entry_bytes {
-                return Err(invalid("stream inflates past max_entry_bytes"));
-            }
-            Ok(decoded)
-        } else if entries.iter().any(|(k, _)| k == "Filter") {
-            Err(invalid("stream uses a filter other than FlateDecode"))
-        } else {
-            Ok(raw.to_vec())
+        for filter in filter_names(entries) {
+            data = match filter.as_str() {
+                "FlateDecode" | "Fl" => inflate(&data, self.limits.max_entry_bytes)?,
+                other => return Err(invalid(&format!("stream filter {other} is not supported"))),
+            };
         }
+        if let Some(parms) = decode_parms(entries) {
+            let predictor = parm_num(parms, "Predictor").unwrap_or(1);
+            if predictor >= 10 {
+                let colors = parm_num(parms, "Colors").unwrap_or(1);
+                let bits = parm_num(parms, "BitsPerComponent").unwrap_or(8);
+                let columns = parm_num(parms, "Columns").unwrap_or(1);
+                let overflow = || invalid("predictor parameters are too large");
+                let bits_per_pixel = colors.checked_mul(bits).ok_or_else(overflow)?;
+                let bits_per_row = bits_per_pixel.checked_mul(columns).ok_or_else(overflow)?;
+                let bpp = bits_per_pixel.div_ceil(8).max(1);
+                let row_len = bits_per_row.div_ceil(8);
+                data = png_unfilter(&data, bpp, row_len)?;
+            } else if predictor != 1 {
+                return Err(invalid("TIFF predictors are not supported"));
+            }
+        }
+        Ok(data)
     }
 
     fn resolve<'o>(&self, obj: &'o Obj) -> Result<std::borrow::Cow<'o, Obj>, DocError> {
@@ -583,6 +796,116 @@ fn to_usize(n: f64) -> Option<usize> {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn to_u32(n: f64) -> Option<u32> {
     (n.is_finite() && n >= 0.0 && n.fract() == 0.0 && n <= f64::from(u32::MAX)).then_some(n as u32)
+}
+
+/// A big-endian unsigned integer of up to eight bytes.
+fn be(bytes: &[u8]) -> u64 {
+    bytes
+        .iter()
+        .fold(0u64, |acc, byte| (acc << 8) | u64::from(*byte))
+}
+
+/// Inflate a zlib stream, refusing output larger than `max`.
+fn inflate(raw: &[u8], max: usize) -> Result<Vec<u8>, DocError> {
+    let mut decoded = Vec::new();
+    ZlibDecoder::new(raw)
+        .take(u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_end(&mut decoded)
+        .map_err(|e| invalid(&format!("cannot inflate stream: {e}")))?;
+    if decoded.len() > max {
+        return Err(invalid("stream inflates past max_entry_bytes"));
+    }
+    Ok(decoded)
+}
+
+/// The filter names of a stream, in the order they were applied.
+fn filter_names(entries: &[(String, Obj)]) -> Vec<String> {
+    match entries.iter().find(|(k, _)| k == "Filter").map(|(_, v)| v) {
+        Some(Obj::Name(name)) => vec![name.clone()],
+        Some(Obj::Arr(items)) => items
+            .iter()
+            .filter_map(|item| match item {
+                Obj::Name(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The decode parameters of a stream: a dictionary, or the first one of an array.
+fn decode_parms(entries: &[(String, Obj)]) -> Option<&Obj> {
+    match entries
+        .iter()
+        .find(|(k, _)| k == "DecodeParms")
+        .map(|(_, v)| v)?
+    {
+        dict @ Obj::Dict(_) => Some(dict),
+        Obj::Arr(items) => items.iter().find(|item| matches!(item, Obj::Dict(_))),
+        _ => None,
+    }
+}
+
+/// An integer decode parameter.
+fn parm_num(parms: &Obj, key: &str) -> Option<usize> {
+    match parms.dict_get(key) {
+        Some(Obj::Num(n)) => to_usize(*n),
+        _ => None,
+    }
+}
+
+/// Undo a PNG predictor (PDF predictors 10 to 15). Each row starts with its
+/// filter type. `bpp` is bytes per complete pixel, and `row_len` the bytes in a
+/// row without the filter byte.
+fn png_unfilter(data: &[u8], bpp: usize, row_len: usize) -> Result<Vec<u8>, DocError> {
+    let stride = row_len
+        .checked_add(1)
+        .ok_or_else(|| invalid("predictor row is too wide"))?;
+    // A row longer than the whole input cannot be complete, so refuse it before
+    // allocating a row buffer of that size.
+    if row_len == 0 || stride > data.len() || !data.len().is_multiple_of(stride) {
+        return Err(invalid("predictor data is not a whole number of rows"));
+    }
+    let rows = data.len() / stride;
+    let mut out = Vec::with_capacity(rows * row_len);
+    let mut previous = vec![0u8; row_len];
+    for row in data.chunks_exact(stride) {
+        let filter = row[0];
+        let line = &row[1..];
+        let mut current = vec![0u8; row_len];
+        for i in 0..row_len {
+            let left = if i >= bpp { current[i - bpp] } else { 0 };
+            let up = previous[i];
+            let up_left = if i >= bpp { previous[i - bpp] } else { 0 };
+            current[i] = match filter {
+                0 => line[i],
+                1 => line[i].wrapping_add(left),
+                2 => line[i].wrapping_add(up),
+                3 => line[i].wrapping_add(
+                    u8::try_from(u16::midpoint(u16::from(left), u16::from(up))).unwrap_or(u8::MAX),
+                ),
+                4 => line[i].wrapping_add(paeth(left, up, up_left)),
+                _ => return Err(invalid("unknown PNG filter type in predictor data")),
+            };
+        }
+        out.extend_from_slice(&current);
+        previous = current;
+    }
+    Ok(out)
+}
+
+/// The Paeth predictor of PNG filter type 4.
+fn paeth(left: u8, up: u8, up_left: u8) -> u8 {
+    let (a, b, c) = (i16::from(left), i16::from(up), i16::from(up_left));
+    let p = a + b - c;
+    let (pa, pb, pc) = ((p - a).abs(), (p - b).abs(), (p - c).abs());
+    if pa <= pb && pa <= pc {
+        left
+    } else if pb <= pc {
+        up
+    } else {
+        up_left
+    }
 }
 
 fn rfind(haystack: &[u8], needle: &[u8]) -> Option<usize> {
