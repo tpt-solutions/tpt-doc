@@ -1,33 +1,51 @@
 # tpt-doc-cli
 
-The `tpt` command line tool for the [tpt-doc](https://github.com/tpt-solutions/tpt-doc) workspace. Formats are detected from file *content*, not extension.
+The `tpt` command-line tool. It inspects, validates, renders, converts,
+redacts and compares documents from the terminal, and it is built on the same
+library crates as the rest of the workspace.
 
-```text
-tpt sniff <FILE>                 print the detected format
-tpt inspect <FILE>               structural summary
-tpt validate <FILE> [--json]     validate against the format's rules
-tpt render <FILE.html> [-o OUT]  render HTML to PDF (default: stdout)
-tpt text <FILE.docx>             extract plain text
-tpt convert <FILE.hl7> [-o OUT]  HL7 v2 ADT/ORU to a FHIR R5 bundle (JSON)
-tpt redact <FILE>               de-identify HL7 v2 or FHIR JSON
-tpt diff <A> <B> [--ignore PREFIX] [--json]
-                                 structural diff by path; exit 1 when they differ
-```
+- **Status:** 0.1.0, not yet published. MSRV 1.88. Licence `MIT OR Apache-2.0`.
 
-`<FILE>` may be `-` for stdin.
+## Commands
 
-| Format | sniff | inspect | validate |
-|---|---|---|---|
-| HL7 v2.x | ✓ | ✓ | segment tables (v2.5.1) |
-| EDIFACT D.96A | ✓ | ✓ | element + envelope rules |
-| X12 | ✓ | ✓ | element + ISA/GS/ST envelope rules |
-| FHIR JSON | ✓ | ✓ | Observation / Encounter invariants |
-| UBL / PEPPOL | ✓ | ✓ | PEPPOL BIS 3.0 rules |
-| DOCX / XLSX | ✓ | ✓ | parses cleanly |
+| Command | Purpose |
+|---|---|
+| `tpt sniff <FILE>` | Identify the format of a file |
+| `tpt inspect <FILE>` | Show the structure of a document |
+| `tpt validate <FILE> [--json]` | Validate and print the report |
+| `tpt render <FILE.html> [--data D.json] [-o OUT]` | Render HTML to PDF, optionally with JSON data |
+| `tpt text <FILE.docx>` | Print the text of a DOCX file |
+| `tpt convert <FILE.hl7> [-o OUT]` | Convert an HL7 v2 message to FHIR |
+| `tpt redact <FILE.hl7> [-o OUT]` | Remove identifying fields from an HL7 v2 message |
+| `tpt diff <A> <B> [--ignore PREFIX]... [--json]` | Compare two documents |
 
-**Exit codes:** `0` success/valid, `1` document has validation errors, `2` usage or I/O error. With `--json`, `validate` prints `{format, valid, issues:[{severity, path, location, rule, message}]}`, suitable for CI.
+## Exit codes
 
-```bash
+| Code | Meaning |
+|---|---|
+| `0` | Success, or the documents are equivalent or valid |
+| `1` | The document is invalid, or the documents differ |
+| `2` | The command could not run, for example a missing or unreadable file |
+
+Scripts can rely on these codes, so `tpt validate` can gate a pipeline.
+
+## Install
+
+From a checkout of the repository:
+
+```sh
 cargo install --path crates/tpt-doc-cli
-tpt validate invoice.xml --json
 ```
+
+## Examples
+
+```sh
+tpt validate invoice.xml --json
+tpt render report.html --data report.json -o report.pdf
+tpt convert adt.hl7 -o patient-bundle.json
+tpt diff before.hl7 after.hl7 --ignore PID
+```
+
+## Licence
+
+Licensed under either of Apache-2.0 or MIT, at your option.
