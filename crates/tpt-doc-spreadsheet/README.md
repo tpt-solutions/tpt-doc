@@ -1,117 +1,95 @@
 # tpt-doc-spreadsheet
 
-[![Crates.io](https://img.shields.io/crates/v/tpt-doc-spreadsheet.svg)](https://crates.io/crates/tpt-doc-spreadsheet)
-[![Docs.rs](https://docs.rs/tpt-doc-spreadsheet/badge.svg)](https://docs.rs/tpt-doc-spreadsheet)
-[![CI](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml/badge.svg)](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/tpt-solutions/tpt-doc#license)
+Read and write `.xlsx` workbooks, and read and write CSV, in pure Rust. Reading
+is streaming: rows are produced one at a time, and the whole sheet is never
+built as a tree in memory. Output is deterministic, so the same rows always
+produce the same bytes.
 
-Streaming `.xlsx` (OOXML) and `.csv` parsing and generation — without loading
-entire files into RAM.
+- **Status:** 0.1.0, not yet published. MSRV 1.88. Licence `MIT OR Apache-2.0`.
 
-Peak memory is proportional to a **single row**, not to the whole workbook.
+## What it does
 
-## Highlights
+- **Read `.xlsx`**: finds the first worksheet through `workbook.xml` and its
+  relationships, resolves shared strings, and yields each row as `Row`.
+- **Write `.xlsx`**: a minimal, spec-compliant package with a workbook, a
+  worksheet and the shared parts, assembled into a ZIP.
+- **Read and write CSV**: `CsvReader` treats the first line as the header, and
+  `CsvWriter` writes records.
+- **Limits**: row counts and entry sizes are bounded, and XML text is checked
+  for characters XML cannot carry.
 
-- Streaming `Iterator`-based row reading for both `.xlsx` and `.csv`.
-- Dependency-light OOXML assembly using `zip` and `quick-xml` only.
-- Typed `Cell` values (`String`, `Number`, `Bool`, `Null`).
-- Round-trip tested: write a workbook, read it back, get identical cells.
-- Deterministic output — identical input always produces identical bytes.
+## Quick start
 
-## Installation
-
-```toml
-[dependencies]
-tpt-doc-spreadsheet = "0.1"
-```
-
-## Usage
-
-### Round-tripping an `.xlsx` workbook
-
-```rust
+```rust,ignore
 use tpt_doc_spreadsheet::xlsx::{Cell, Row, XlsxReader, XlsxWriter};
 
 // Write a workbook.
 let mut writer = XlsxWriter::new();
 writer.push_row(Row {
     index: 1,
-    cells: vec![Cell::String("name".into()), Cell::Number(42.0)],
+    cells: vec![Cell::String("Item".into()), Cell::Number(10.0)],
 });
 let bytes = writer.finish()?;
 
-// Read it back.
+// Read it back, one row at a time.
 let mut reader = XlsxReader::new(&bytes)?;
-let rows: Vec<Row> = reader.rows().collect::<Result<_, _>>()?;
-assert_eq!(
-    rows[0].cells,
-    vec![Cell::String("name".into()), Cell::Number(42.0)]
-);
-# Ok::<(), tpt_doc_core::DocError>(())
-```
-
-### Streaming CSV
-
-```rust
-use std::io::Cursor;
-use tpt_doc_spreadsheet::csv::{CsvReader, CsvWriter};
-
-let mut out = Vec::new();
-{
-    let mut writer = CsvWriter::new(&mut out);
-    writer.write_record(["id", "status"])?;
-    writer.write_record(["12345", "active"])?;
-    writer.flush()?;
+for row in reader.rows() {
+    let row = row?;
+    println!("{:?}", row.cells());
 }
-assert_eq!(String::from_utf8_lossy(&out), "id,status\n12345,active\n");
-
-// The reader treats the first record as the header row, so `records()` yields
-// the data rows only.
-let mut reader = CsvReader::new(Cursor::new(out));
-let records: Vec<Vec<String>> = reader.records().collect::<Result<_, _>>()?;
-assert_eq!(records, vec![vec!["12345".to_string(), "active".to_string()]]);
-# Ok::<(), tpt_doc_core::DocError>(())
 ```
 
-## Modules
+CSV with a header row:
 
-| Module | Contents |
+```rust,ignore
+use tpt_doc_spreadsheet::csv::CsvReader;
+
+let mut reader = CsvReader::new(csv_bytes);
+let header = reader.headers()?;
+for record in reader.records() {
+    let fields = record?;
+    // ...
+}
+```
+
+## Main types
+
+| Item | Purpose |
 |---|---|
-| `xlsx` | `XlsxReader`, `XlsxWriter`, `Row`, `Cell` — streaming OOXML. |
-| `csv` | `CsvReader`, `CsvWriter` — RFC 4180 style delimited text. |
+| `xlsx::XlsxReader` | Streaming reader: `new`, `with_limits`, `rows` |
+| `xlsx::XlsxWriter` | Writer: `new`, `push_row`, `finish` |
+| `xlsx::Row`, `xlsx::Cell` | A row (index and cells) and a cell (`String`, `Number`, `Boolean`, `Error`, `Blank`) |
+| `csv::CsvReader` | `new`, `headers`, `records` |
+| `csv::CsvWriter` | `new`, `write_record`, `flush` |
 
-## Character validation
+## Limits
 
-XML 1.0 forbids C0 control characters other than tab, newline and carriage
-return. A string cell containing one cannot be represented at all, so writing
-it raw would produce a workbook that Excel refuses to open — the writer reports
-an error naming the offending code point instead.
+`XlsxReader::with_limits` takes a `tpt_doc_core::Limits`. Its `max_rows` caps
+how many rows are yielded, and an over-limit read is an error, not a silent
+truncation. The decompressed size of each part is bounded by `max_entry_bytes`.
 
-```rust
-use tpt_doc_spreadsheet::{Cell, Row, XlsxWriter};
+## Scope and known gaps
 
-let mut writer = XlsxWriter::new();
-writer.push_row(Row {
-    index: 1,
-    cells: vec![Cell::String("bad\u{1}value".into())],
-});
-let err = writer.finish().expect_err("U+0001 is not legal in XML");
-assert!(err.to_string().contains("U+0001"));
-# Ok::<(), tpt_doc_spreadsheet::Row>(())
+- The reader handles the first worksheet only. Multi-sheet workbooks are not
+  yet supported.
+- Formulas, styles, dates and the CSV formula-injection guard are not handled.
+  Values are read as the text or number stored in the file.
+
+## Testing
+
+```sh
+cargo test -p tpt-doc-spreadsheet
 ```
 
-## Memory model
+The tests include round trips, a hand-written fixture, and property tests that
+round-trip arbitrary rows.
 
-`XlsxReader::rows()` yields `Result<Row, DocError>` items one at a time. The
-workbook is never materialised as a whole, so a 2 GB spreadsheet costs the same
-resident memory as a 2 KB one.
+## Related crates
 
-## Documentation
+- `tpt-doc-ooxml` provides the ZIP package handling this crate uses.
+- `tpt-doc-core` provides errors and limits.
+- The facade `tpt-doc` re-exports this crate behind the `spreadsheet` feature.
 
-- Crate docs: <https://docs.rs/tpt-doc-spreadsheet>
-- Repository: <https://github.com/tpt-solutions/tpt-doc>
+## Licence
 
-## License
-
-Licensed under either of [MIT](../../LICENSE-MIT) or
-[Apache License, Version 2.0](../../LICENSE-APACHE), at your option.
+Licensed under either of Apache-2.0 or MIT, at your option.
