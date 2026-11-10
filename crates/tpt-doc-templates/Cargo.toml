@@ -1,6 +1,9 @@
 [package]
 name = "tpt-doc-templates"
 description = "Worked examples of tpt-doc end to end, checked against golden outputs"
+readme = "README.md"
+keywords = ["examples", "golden-tests", "pdf", "fhir", "hl7"]
+categories = ["development-tools"]
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
