@@ -1,146 +1,96 @@
 # tpt-doc-edi
 
-[![Crates.io](https://img.shields.io/crates/v/tpt-doc-edi.svg)](https://crates.io/crates/tpt-doc-edi)
-[![Docs.rs](https://docs.rs/tpt-doc-edi/badge.svg)](https://docs.rs/tpt-doc-edi)
-[![CI](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml/badge.svg)](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/tpt-solutions/tpt-doc#license)
+Electronic data interchange in Rust: streaming parsers for EDIFACT and X12,
+schema validation against embedded tables, functional and implementation
+acknowledgments, and read-only readers for the common purchase-order, invoice,
+ship-notice and despatch documents.
 
-EDIFACT and X12 parsing with embedded schema validation and **zero-allocation**
-segment streaming.
+- **Status:** 0.1.0, not yet published. MSRV 1.88. Licence `MIT OR Apache-2.0`.
 
-The parser operates on a borrowed `&[u8]` and yields `Segment` values that
-reference the original input — nothing is copied or heap-allocated per segment.
+## What it does
 
-## Highlights
+- **Streaming parsers.** `EdifactParser` and `X12Parser` yield segments that
+  borrow from the input, with no per-segment copies. Release characters in
+  EDIFACT are handled by `elements_released`.
+- **Schema validation.** Embedded EDIFACT D.96A and X12 tables check required
+  elements, data types and lengths, envelope bracketing (UNB/UNZ, UNH/UNT,
+  ISA/IEA, GS/GE, ST/SE), and control-number agreement. Tables can also be
+  loaded at runtime with `ElementTables::from_tsv`.
+- **Acknowledgments.** `x12_ack` builds and reads a `997` (functional) and a
+  `999` (implementation) acknowledgment. `edifact_ack` builds and reads a
+  `CONTRL`.
+- **Document readers (read-only).** `x12_850` (purchase order), `x12_810`
+  (invoice), `x12_856` (advance ship notice), and `edifact_docs` for `ORDERS`,
+  `INVOIC` and `DESADV`. Each checks its control count.
 
-- Streaming `Iterator` parsers for UN/EDIFACT D.96A and ANSI X12.
-- Zero allocation per segment: segments borrow from the input buffer.
-- Embedded schema tables — `edifact_d96a()`, `x12_elements()`,
-  `x12_transaction_sets()` — parsed from compact TSV.
-- Schema-driven validation returning `Vec<SchemaViolation>` with segment
-  positions and element references.
-- Small dependency footprint: `tpt-doc-core` and `memchr` only.
+## Quick start
 
-## Installation
-
-```toml
-[dependencies]
-tpt-doc-edi = "0.1"
-```
-
-## Usage
-
-### Streaming EDIFACT
-
-```rust
-use tpt_doc_edi::edifact::EdifactParser;
-
-let message = b"UNB+UNOA:1+SENDER+RECEIVER+260101:0900+1'";
-for segment in EdifactParser::new(message) {
-    let segment = segment?;
-    assert_eq!(segment.tag(), "UNB");
-    assert_eq!(segment.elements()[0], "UNOA:1");
-}
-# Ok::<(), tpt_doc_core::DocError>(())
-```
-
-### Streaming X12
-
-```rust
+```rust,ignore
 use tpt_doc_edi::x12::X12Parser;
+use tpt_doc_edi::x12_ack::build_997;
+use tpt_doc_edi::x12_850::parse_850;
 
-// An ISA segment is always exactly 106 bytes: the element separator is byte 3
-// and the segment terminator is byte 105.
-let interchange = concat!(
-    "ISA*00*          *00*          *ZZ*SENDERID       *ZZ*RECEIVERID     ",
-    "*260101*0900*^*00501*000000001*0*P*:~",
-    "GS*HP*SENDER*RECEIVER*20260101*0900*1*X*005010X221A1~",
-    "ST*835*0001~",
-    "BPR*I*1000*C*ACH*CCP*01*021000021*DA*12345678**01*999888777*20260101~",
-    "SE*6*0001~",
-    "GE*1*1~",
-    "IEA*1*000000001~",
-);
-assert_eq!(interchange.find('~'), Some(105), "ISA must be 106 bytes");
-
-let tags: Vec<String> = X12Parser::new(interchange.as_bytes())?
-    .map(|segment| segment.map(|s| s.tag().to_string()))
-    .collect::<Result<_, _>>()?;
-assert_eq!(tags, vec!["ISA", "GS", "ST", "BPR", "SE", "GE", "IEA"]);
-# Ok::<(), tpt_doc_core::DocError>(())
-```
-
-### Schema validation
-
-```rust
-use tpt_doc_edi::schema::{check_edifact, edifact_d96a, validate_edifact, ElementTables};
-
-let message = b"UNB+UNOA:1+SENDER+RECEIVER+260101:0900+1'";
-let segments: Vec<_> = tpt_doc_edi::EdifactParser::new(message).collect::<Result<_, _>>()?;
-assert!(check_edifact(&segments).is_ok());
-
-let tables: ElementTables = edifact_d96a();
-for violation in validate_edifact(&tables, &segments) {
-    println!("{violation:?}");
+// Stream the segments of an interchange.
+for segment in X12Parser::new(interchange)? {
+    let segment = segment?;
+    println!("{} {:?}", segment.tag(), segment.elements());
 }
-# Ok::<(), tpt_doc_core::DocError>(())
+
+// Read a purchase order.
+let order = parse_850(interchange)?;
+println!("{} lines", order.lines.len());
+
+// Acknowledge it: a 997 accepts the functional group and its sets.
+let ack = build_997(interchange, true, "000000042", "260110", "0930")?;
 ```
 
-### `UNA` service string advice
-
-Delimiters are read automatically from a leading `UNA` segment, so messages
-using non-default separators parse transparently:
-
-```rust
-use tpt_doc_edi::EdifactParser;
-
-let message = b"UNA:+.? 'UNB+UNOA:1+SENDER'";
-let segments: Vec<_> = EdifactParser::new(message).collect::<Result<_, _>>()?;
-assert_eq!(segments[0].tag(), "UNB");
-# Ok::<(), tpt_doc_core::DocError>(())
-```
-
-### Release characters
-
-EDIFACT escapes a literal separator with the release character (`?` by
-default). `Segment::elements()` returns the raw borrowed slices; call
-`elements_released()` to resolve them. Elements with no release character are
-borrowed without allocating.
-
-```rust
-use tpt_doc_edi::edifact::EdifactParser;
-
-let segments: Vec<_> = EdifactParser::new(b"UNB+UNOA:1+A?+B+C?D'")
-    .collect::<Result<Vec<_>, _>>()
-    .unwrap();
-
-// `elements()` keeps the raw wire form...
-assert_eq!(segments[0].elements()[1], "A?+B");
-
-// ...while `elements_released()` resolves it to one element containing `+`.
-let elements = segments[0].elements_released();
-assert_eq!(elements[1], "A+B");
-assert_eq!(elements[2], "CD");
-# Ok::<(), tpt_doc_core::DocError>(())
-```
-
-A truncated final segment (no terminator) and a segment with more than 128
-data elements are both reported as errors rather than being silently truncated.
-
-## Modules
+## Main modules
 
 | Module | Contents |
 |---|---|
-| `edifact` | `EdifactParser`, `Segment` — UN/EDIFACT D.96A streaming. |
-| `x12` | `X12Parser`, `X12Segment` — ANSI X12 streaming. |
-| `schema` | `ElementTables`, `TransactionTables`, `SchemaViolation`, `SegmentRequirement`, `ElemKind`. |
+| `edifact`, `x12` | Streaming parsers and segment types |
+| `schema` | Embedded and runtime tables, envelope and transaction-set validation |
+| `x12_ack` | `build_997`, `parse_997`, `build_999`, `parse_999` |
+| `edifact_ack` | `build_contrl`, `read_contrl` |
+| `x12_850`, `x12_810`, `x12_856` | Purchase orders, invoices, ship notices (`parse_850`, `parse_810`, `parse_856`) |
+| `edifact_docs` | `parse_document` for ORDERS, INVOIC and DESADV |
 
-## Documentation
+## Scope and known gaps
 
-- Crate docs: <https://docs.rs/tpt-doc-edi>
-- Repository: <https://github.com/tpt-solutions/tpt-doc>
+- The readers are read-only, apart from the acknowledgments. There is no
+  writer for the transaction sets themselves yet.
+- A `997` or `999` acknowledges whole groups and sets. It does not write
+  element-level `AK3`/`AK4` or `IK3`/`IK4` error detail, so a rejection names
+  the set, not the element.
+- The `CONTRL` action codes are the ones this crate uses; check them against the
+  UN/EDIFACT directory before relying on them with a trading partner.
+- X12 `850`, `810` and `856` are read as the common single-transaction form.
 
-## License
+## Limits and safety
 
-Licensed under either of [MIT](../../LICENSE-MIT) or
-[Apache License, Version 2.0](../../LICENSE-APACHE), at your option.
+The parsers return errors for malformed input and never panic on arbitrary
+bytes. Fuzz targets for the EDIFACT and X12 parsers are in the repository's
+`fuzz/` directory.
+
+## Testing
+
+```sh
+cargo test -p tpt-doc-edi
+```
+
+The tests include round trips, envelope and control-count checks, runtime table
+loading, and fixtures for each transaction set.
+
+## Serde
+
+The `serde` feature adds serde support to the crate's data types. Segments
+borrow from the input, so they can be serialized but not deserialized.
+
+## Related crates
+
+- `tpt-doc-core` provides errors and validation reports.
+- The facade `tpt-doc` re-exports this crate behind the `edi` feature.
+
+## Licence
+
+Licensed under either of Apache-2.0 or MIT, at your option.
