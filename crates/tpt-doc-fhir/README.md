@@ -1,132 +1,96 @@
 # tpt-doc-fhir
 
-[![Crates.io](https://img.shields.io/crates/v/tpt-doc-fhir.svg)](https://crates.io/crates/tpt-doc-fhir)
-[![Docs.rs](https://docs.rs/tpt-doc-fhir/badge.svg)](https://docs.rs/tpt-doc-fhir)
-[![CI](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml/badge.svg)](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/tpt-solutions/tpt-doc#license)
+FHIR R5 resources in Rust, with type-state builders, JSON and XML
+serialization, validation with FHIR invariant identifiers, and
+de-identification. A resource read from JSON keeps the elements the model does
+not represent, so a round trip loses nothing.
 
-HL7 FHIR R5 typed parsing, validation, and serialization with **compile-time**
-resource validation.
+- **Status:** 0.1.0, not yet published. MSRV 1.88. Licence `MIT OR Apache-2.0`.
 
-Resources are built through type-state builders: `build()` simply does not
-exist until every mandatory field has been supplied, so an incomplete
-`Patient` is a compile error rather than a runtime surprise.
+## What it does
 
-## Highlights
+- **Resources:** `Patient`, `Observation`, `Encounter`, `Organization` and
+  `Bundle`, with their datatypes (`HumanName`, `Identifier`, `CodeableConcept`,
+  `Coding`, `Reference`, `Period`, `Quantity`).
+- **Builders** enforce mandatory fields at compile time. `Patient` needs an id,
+  and `Observation` needs a status and a code, in either order.
+- **JSON** round trips for every resource, with `resourceType` checked on read.
+- **XML** for `Patient`, `Observation`, `Encounter` and `Organization`. Readers
+  follow element positions, so nested elements with the same names are ignored.
+- **Validation** returns a `ValidationReport` with FHIR invariant ids (for
+  example `obs-7`, `enc-1`). Date fields are checked against the FHIR `date` and
+  `dateTime` grammar.
+- **Decimals as written:** `Quantity` keeps the decimal text it was read from,
+  so `5.40` is not silently changed to `5.4`.
+- **De-identification** by element path (`fhir::redact`), with a Safe Harbor
+  style profile and an audit of what changed.
 
-- Type-state builders for `Patient`, `Organization`, `Encounter`, `Observation`.
-- JSON and XML round-tripping for every supported resource.
-- Structured, field-path-anchored `ValidationReport` output for runtime
-  cross-field rules (date ranges, required-if constraints).
-- Typed `Bundle` with heterogeneous `Resource` entries.
-- Alignment targets: **HL7 FHIR R5**, NZ **HIPC 2020**, **NZISM**.
+## Quick start
 
-## Installation
-
-```toml
-[dependencies]
-tpt-doc-fhir = "0.1"
-```
-
-## Usage
-
-### Build a Patient
-
-```rust
-use tpt_doc_fhir::prelude::*;
-
-// `build()` is only available once the mandatory fields are set.
-let patient = Patient::builder()
-    .id("nz-12345")
-    .name(HumanName::new("Smith", "John"))
-    .build();
-
-let bytes = patient.to_json()?;
-let json = String::from_utf8_lossy(&bytes);
-assert!(json.contains(r#""resourceType": "Patient""#));
-# Ok::<(), FhirValidationError>(())
-```
-
-### Attach optional demographics
-
-```rust
+```rust,ignore
 use tpt_doc_fhir::prelude::*;
 
 let patient = Patient::builder()
-    .id("nz-12345")
-    .name(HumanName::new("Smith", "John"))
-    .gender(Gender::Female)
-    .birth_date("1984-03-02")
-    .identifier(Identifier {
-        system: Some("https://nzihi.systemsitnz-services.govt.nz".into()),
-        value: "123456789".into(),
-    })
-    .build();
-# Ok::<(), FhirValidationError>(())
-```
-
-### Validate cross-field rules
-
-```rust
-use tpt_doc_fhir::prelude::*;
-
-let observation = Observation::builder()
-    .status(ObservationStatus::Final)
-    .code(CodeableConcept::text("Body temperature"))
-    .value_quantity(Quantity::new(37.2, "C"))
+    .id("p1")
+    .birth_date("1970-02-01")
     .build();
 
-let report = validate_observation(&observation);
-assert!(report.is_valid(), "unexpected issues: {:?}", report.issues());
-```
-
-## XML versus JSON
-
-XML 1.0 forbids C0 control characters other than tab, newline and carriage
-return, so `to_xml` on a resource reports an error naming the offending code
-point rather than emitting malformed FHIR XML. `to_json` is unaffected — JSON
-can represent those characters as `\u0001` escapes.
-
-```rust
-use tpt_doc_fhir::prelude::*;
-
-let patient = Patient::builder()
-    .id("nz-12345")
-    .name(HumanName::new("Bad\u{1}Name", "John"))
-    .build();
-
-assert!(patient.to_xml().is_err(), "U+0001 cannot appear in XML");
 let json = patient.to_json()?;
-assert!(String::from_utf8_lossy(&json).contains("\\u0001"));
-# Ok::<(), FhirValidationError>(())
+let back = Patient::from_json(&json)?;
+assert_eq!(patient, back);
 ```
 
-## Modules
+Reading a JSON document with an unknown element keeps that element:
 
-| Module | Contents |
+```rust,ignore
+let text = br#"{"resourceType":"Patient","id":"p1","meta":{"versionId":"3"}}"#;
+let patient = Patient::from_json(text)?;
+let out = patient.to_json()?; // still contains "meta"
+```
+
+## Main types
+
+| Item | Purpose |
 |---|---|
-| `patient` | `Patient`, `PatientBuilder`, `Gender` |
-| `organization` | `Organization`, `OrganizationBuilder` |
-| `encounter` | `Encounter`, `EncounterBuilder`, `EncounterStatus` |
-| `observation` | `Observation`, `ObservationBuilder`, `ObservationStatus` |
-| `bundle` | `Bundle`, `Resource` |
-| `types` | `HumanName`, `Identifier`, `Coding`, `CodeableConcept`, `Reference`, `Period`, `Quantity` |
-| `validate` | `FhirValidationError`, `validate_observation`, `validate_encounter` |
+| `Patient`, `Observation`, `Encounter`, `Organization`, `Bundle` | The resources |
+| `Patient::builder()` and the other builders | Type-state construction |
+| `types::{HumanName, Identifier, CodeableConcept, Coding, Reference, Period, Quantity}` | Datatypes |
+| `validate::{validate_observation, validate_encounter, FhirValidationError}` | Validation |
+| `redact` | De-identification by path |
+| `traits` | `DocReader` and `DocWriter` implementations (JSON) and `Validate` |
 
-## Validation strategy
+## Format notes
 
-| Rule class | When it is enforced |
-|---|---|
-| Mandatory elements present | Compile time (type-state builder) |
-| Element value types | Compile time (typed fields) |
-| Cross-field / date-range rules | Runtime (`validate_*`) |
+- The canonical format for the shared traits is JSON. XML is available through
+  each type's `to_xml` and `from_xml`.
+- `Observation` values are numeric quantities (`valueQuantity`). Non-numeric
+  values are not modelled yet.
+- XML readers ignore elements the model does not represent. Those elements are
+  not kept on an XML round trip; JSON keeps them.
 
-## Documentation
+## Limits and safety
 
-- Crate docs: <https://docs.rs/tpt-doc-fhir>
-- Repository: <https://github.com/tpt-solutions/tpt-doc>
+XML nesting is bounded by `Limits::max_xml_depth`. Readers refuse unknown
+resource types and malformed dates, and they never panic on arbitrary bytes.
 
-## License
+## Testing
 
-Licensed under either of [MIT](../../LICENSE-MIT) or
-[Apache License, Version 2.0](../../LICENSE-APACHE), at your option.
+```sh
+cargo test -p tpt-doc-fhir
+```
+
+The tests include property-based round trips (with valid generated dates), XML
+position tests, and checks of the date grammar.
+
+## Scope
+
+This crate targets FHIR R5. R4 and profile validation are not yet supported.
+
+## Related crates
+
+- `tpt-doc-convert` maps HL7 v2 messages to these resources.
+- `tpt-doc-core` provides errors, validation reports and limits.
+
+## Licence
+
+Licensed under either of Apache-2.0 or MIT, at your option.
