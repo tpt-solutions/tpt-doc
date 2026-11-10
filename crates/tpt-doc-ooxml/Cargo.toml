@@ -1,6 +1,8 @@
 [package]
 name = "tpt-doc-ooxml"
 description = "Shared OOXML package handling (ZIP containers and XML parts) for the XLSX and DOCX crates"
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-ooxml"
 keywords = ["ooxml", "zip", "office", "xml"]
 categories = ["parser-implementations"]
 version.workspace = true
