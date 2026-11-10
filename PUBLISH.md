@@ -57,7 +57,7 @@ category list). Documentation links point at docs.rs.
 | `tpt-doc-fhir` | rewritten | existing | yes | yes | no |
 | `tpt-doc-hl7v2` | existing (not reviewed in this pass) | existing | yes | yes | no |
 | `tpt-doc-edi` | rewritten | existing | yes | yes | no |
-| `tpt-doc-ooxml` | new | new | yes | yes | yes |
+| `tpt-doc-ooxml` | new | new | yes | yes | no |
 | `tpt-doc-pdf` | rewritten | existing | yes | yes | no |
 | `tpt-doc-spreadsheet` | rewritten | existing | yes | yes | no |
 | `tpt-doc-word` | existing (not reviewed in this pass) | existing | yes | yes | no |
@@ -66,7 +66,7 @@ category list). Documentation links point at docs.rs.
 | `tpt-doc-ubl` | existing (not reviewed in this pass) | existing | yes | yes | no |
 | `tpt-doc-convert` | rewritten | new | yes | yes | no |
 | `tpt-doc-diff` | rewritten | new | yes | yes | no |
-| `tpt-doc-audit` | rewritten | new | yes | yes | yes |
+| `tpt-doc-audit` | rewritten | new | yes | yes | no |
 | `tpt-doc` | rewritten | new | yes | yes | no |
 | `tpt-doc-cli` | rewritten | new | yes | yes | no |
 | `tpt-doc-mcp` | rewritten | new | yes | yes | no |
@@ -106,15 +106,18 @@ their dependencies. Allow the index to update between each step.
 | 2026-11-10 | `cargo package --no-verify --allow-dirty -p tpt-doc-core` | tpt-doc-core | Pass |
 | 2026-11-10 | `cargo publish --dry-run --allow-dirty -p tpt-doc-core` | tpt-doc-core | Pass (aborted before upload, as intended) |
 | 2026-11-10 | `cargo package --no-verify --allow-dirty -p <each of the 16 dependents>` | all dependents | Fail: `no matching package named tpt-doc-core found` (expected until core is published). Re-run for one dependent online, same result. |
+| 2026-11-10 | `cargo package --no-verify -p tpt-doc-core` (clean tree, commit 152ecc6) | tpt-doc-core | Pass (13 files, 58.2 KiB) |
+| 2026-11-10 | `cargo publish --dry-run -p tpt-doc-core` (clean tree, includes verify build) | tpt-doc-core | Pass (verify compiled; upload aborted by dry run, as intended) |
+| 2026-11-10 | `cargo package --no-verify -p <each of the 16 dependents>` (clean tree) | all dependents | Fail with exit 101 for every crate: `no matching package named tpt-doc-core found` (for `tpt-doc-mcp` the first missing dependency reported is `tpt-doc-cli`). Expected until the earlier tiers are published. |
 
 ## Open items before the first real publish
 
-- **Commit the manifest and changelog changes.** The Cargo.toml metadata edits
-  for `tpt-doc-ooxml`, `tpt-doc-audit`, `tpt-doc-templates`, `tpt-doc-wasm` and
-  `tpt-doc-bench`, and the CHANGELOG.md edits, are not committed. Dry runs were
-  run against the working tree with `--allow-dirty`.
-- **Check dev-dependencies.** Dev-dependencies that name a workspace crate with
-  a version must also exist on crates.io. This has not been checked yet.
+- **Dev-dependencies (checked 2026-11-10):** every workspace dev-dependency
+  that carries a version is published earlier in the order than the crate that
+  uses it (for example `tpt-doc-sign` → `tpt-doc-fhir`, `tpt-doc-spreadsheet` →
+  `tpt-doc-core`, `tpt-doc-ubl` → `tpt-doc-core`). The only dev-dependents on
+  workspace crates that are not in the order are the unpublished crates
+  (`tpt-doc-bench`, `tpt-doc-templates`), so they do not affect publishing.
 - **Review the five READMEs not rewritten in this pass:** `tpt-doc-hl7v2`,
   `tpt-doc-word`, `tpt-doc-layout`, `tpt-doc-sign` and `tpt-doc-ubl`. They were
   written earlier and may not match the current API. Their quick-start code is
