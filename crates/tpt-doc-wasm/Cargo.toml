@@ -1,6 +1,9 @@
 [package]
 name = "tpt-doc-wasm"
 description = "WebAssembly build of the tpt-doc MCP interface, for the in-browser playground"
+readme = "README.md"
+keywords = ["wasm", "webassembly", "playground", "mcp", "healthcare"]
+categories = ["wasm", "web-programming"]
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
