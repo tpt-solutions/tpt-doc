@@ -1,6 +1,8 @@
 [package]
 name = "tpt-doc-audit"
 description = "Tamper-evident audit log: a SHA-256 hash chain over events, with the head sealed by a CAdES signature"
+readme = "README.md"
+documentation = "https://docs.rs/tpt-doc-audit"
 keywords = ["audit", "hash-chain", "provenance", "signature", "compliance"]
 categories = ["cryptography", "data-structures"]
 version.workspace = true
