@@ -1,161 +1,102 @@
 # tpt-doc-core
 
-[![Crates.io](https://img.shields.io/crates/v/tpt-doc-core.svg)](https://crates.io/crates/tpt-doc-core)
-[![Docs.rs](https://docs.rs/tpt-doc-core/badge.svg)](https://docs.rs/tpt-doc-core)
-[![CI](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml/badge.svg)](https://github.com/tpt-solutions/tpt-doc/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/tpt-solutions/tpt-doc#license)
+Shared foundations for the tpt-doc crates: the unified error type, validation
+reports, parser limits, the reader/writer/validator traits, and a strict reader
+for the schema tables. It has no dependencies beyond `alloc`, and it builds for
+`no_std` targets.
 
-Shared traits, zero-copy buffer abstractions, and unified error types for the
-[`tpt-doc`](https://github.com/tpt-solutions/tpt-doc) ecosystem.
+- **Status:** 0.1.0, not yet published. MSRV 1.88. Licence `MIT OR Apache-2.0`.
+- **Repository:** <https://github.com/tpt-solutions/tpt-doc>
 
-This crate is the foundation every other `tpt-doc-*` crate builds on. It has
-**zero external dependencies** and is `no_std` compatible when the default
-`std` feature is disabled.
+## What it provides
 
-## Highlights
+- **`DocError`**: one error type for every format. It has `InvalidFormat`,
+  `MissingField`, `ValidationFailed`, `Located` (an error with a position),
+  `Io` (with `std`) and `Other` (a wrapped dependency error). Its `Display`
+  includes the position, and `source()` keeps the cause chain.
+- **`Location`**: where a problem is: `Unknown`, a JSON-pointer-style `Path`, a
+  segment or record `Index`, or a byte `Offset`.
+- **`ValidationReport`**, **`ValidationIssue`** and **`Severity`**: validators
+  return every issue they find, each with a severity, a location and, where the
+  standard has one, a rule id. Only errors make a document invalid.
+- **`Limits`**: bounds on untrusted input. The defaults are 200 MB for one
+  decompressed entry, 1,000,000 rows, and 256 levels of XML nesting.
+- **`DocReader`**, **`DocWriter`** and **`Validate`**: the shared traits. A type
+  implements `from_bytes` and `to_bytes` for its canonical format.
+- **`tsv`**: a strict reader for tab-separated schema tables. A malformed row is
+  an error that names its line.
+- **`escape_xml_text`** and **`validate_xml_chars`**: XML text escaping that
+  refuses characters XML 1.0 cannot represent.
+- **`BufSlice`**: a zero-copy wrapper over `&[u8]`.
 
-- Zero external dependencies — nothing else is pulled into your build.
-- `no_std` support behind a feature flag (`alloc` only).
-- `BufSlice<'a>`: an explicit, copyable "this is a view, not a copy" byte type.
-- One `DocError` enum for every parser, writer, and validator in the ecosystem.
-- `DocReader`, `DocWriter`, and `Validate` traits so your own formats plug in.
+## Quick start
 
-## Installation
+```rust,ignore
+use tpt_doc_core::{DocError, Limits, Location, ValidationReport};
 
-```toml
-[dependencies]
-tpt-doc-core = "0.1"
-```
-
-To build without the standard library:
-
-```toml
-[dependencies]
-tpt-doc-core = { version = "0.1", default-features = false }
-```
-
-## Usage
-
-### Zero-copy buffer views
-
-```rust
-use tpt_doc_core::BufSlice;
-
-let buf = BufSlice::new(b"document bytes");
-assert_eq!(buf.as_bytes(), b"document bytes");
-let (head, tail) = buf.split_at(8);
-assert_eq!(head.as_bytes(), b"document");
-assert_eq!(tail.as_bytes(), b" bytes");
-```
-
-### Unified error handling
-
-```rust
-use tpt_doc_core::DocError;
-
-fn parse(bytes: &[u8]) -> Result<u32, DocError> {
-    if bytes.is_empty() {
-        return Err(DocError::MissingField("document body"));
+fn check(value: &str) -> Result<(), DocError> {
+    if value.is_empty() {
+        return Err(DocError::invalid_format("empty value")
+            .with_location(Location::Offset(0)));
     }
-    if bytes[0] != b'%' {
-        return Err(DocError::invalid_format("expected a header marker"));
-    }
-    Ok(bytes.len() as u32)
+    Ok(())
 }
 
-assert_eq!(parse(b"%PDF").unwrap(), 4);
-assert!(matches!(parse(b""), Err(DocError::MissingField("document body"))));
-```
-
-### Implementing your own document format
-
-```rust
-use tpt_doc_core::{DocError, DocReader, DocWriter, Validate, ValidationReport};
-
-/// A minimal example document type.
-struct Doc(Vec<u8>);
-
-impl DocReader for Doc {
-    fn from_bytes(bytes: &[u8]) -> Result<Self, DocError> {
-        if bytes.is_empty() {
-            return Err(DocError::MissingField("body"));
+fn report(values: &[&str]) -> ValidationReport {
+    let mut report = ValidationReport::default();
+    for (index, value) in values.iter().enumerate() {
+        if value.is_empty() {
+            report.push(format!("[{index}]"), "empty value");
         }
-        Ok(Doc(bytes.to_vec()))
     }
+    report
 }
 
-impl DocWriter for Doc {
-    fn to_bytes(&self) -> Result<Vec<u8>, DocError> {
-        Ok(self.0.clone())
-    }
-}
-
-impl Validate for Doc {
-    fn validate(&self) -> ValidationReport {
-        let mut report = ValidationReport::default();
-        if self.0.is_empty() {
-            report.push("/body", "must not be empty");
-        }
-        report
-    }
-}
-
-assert!(Doc::from_bytes(b"content").unwrap().validate().is_valid());
-assert!(Doc::from_bytes(b"").is_err());
+// Parsers take limits from the caller; the defaults are safe for most inputs.
+let limits = Limits { max_rows: 10_000, ..Limits::default() };
 ```
 
-## Feature flags
+## Features
 
-| Feature | Default | Description |
+| Feature | Default | Effect |
 |---|---|---|
-| `std` | yes | Enables `std::io` integration and the `DocError::Io` variant. |
+| `std` | yes | Enables `std::io` integration and `DocError::Io`. |
+| `serde` | no | `Serialize`/`Deserialize` for `ValidationReport` and its parts. |
 
-## Modules
+Build for a `no_std` target with `--no-default-features`, for example
+`cargo check -p tpt-doc-core --no-default-features --target thumbv7em-none-eabihf`.
 
-| Module | Contents |
+## Main types
+
+| Item | Purpose |
 |---|---|
-| `buf` | `BufSlice` — zero-copy borrowed byte views. |
-| `error` | `DocError` — the workspace-wide error type. |
-| `traits` | `DocReader`, `DocWriter`, `Validate`, `ValidationReport`. |
-| `xml` | `escape_xml_text`, `validate_xml_chars`, `is_xml_char`. |
+| `DocError` | The error type for every format |
+| `Location` | Where in the input a problem is |
+| `ValidationReport`, `ValidationIssue`, `Severity` | Structured validation results |
+| `Limits` | Bounds for untrusted input |
+| `DocReader`, `DocWriter`, `Validate` | Shared traits |
+| `tsv::rows`, `tsv::Row` | Strict schema-table reading |
+| `escape_xml_text`, `validate_xml_chars` | XML safety |
 
-## XML text helpers
+## Safety with untrusted input
 
-Every XML-producing crate in this workspace needs the same two guarantees, so
-they live here rather than being reimplemented five times. XML 1.0 permits only
-`U+0009`, `U+000A`, `U+000D`, and code points from `U+0020` upward (excluding the
-surrogate range and `U+FFFE`/`U+FFFF`); other control characters cannot be
-represented in a document at all.
+Parsers in the workspace return errors and do not panic on arbitrary bytes.
+Property tests check this for each format, and a fuzz target per parser is
+kept in the repository's `fuzz/` directory. Decompression and row counts are
+bounded by `Limits`.
 
-```rust
-use tpt_doc_core::escape_xml_text;
+## Testing
 
-// Legal text is escaped and returned.
-assert_eq!(
-    escape_xml_text("Smith & Sons <Ltd>")?,
-    "Smith &amp; Sons &lt;Ltd&gt;"
-);
-
-// A raw C0 control is rejected rather than written into the XML.
-assert!(escape_xml_text("bad\u{1}value").is_err());
-
-// Tab, newline and carriage return are legal and pass through.
-assert_eq!(escape_xml_text("a\tb\nc\rd")?, "a\tb\nc\rd");
-# Ok::<(), tpt_doc_core::DocError>(())
+```sh
+cargo test -p tpt-doc-core
+cargo check -p tpt-doc-core --no-default-features --target thumbv7em-none-eabihf
 ```
 
-## Safety and quality guarantees
+## Related crates
 
-- `#![forbid(unsafe_code)]`
-- `#![warn(missing_docs, clippy::pedantic)]`
-- Property tests via `proptest` in CI.
+Every other tpt-doc crate depends on this one. The facade crate `tpt-doc`
+re-exports the format crates behind feature flags.
 
-## Documentation
+## Licence
 
-- Crate docs: <https://docs.rs/tpt-doc-core>
-- Repository: <https://github.com/tpt-solutions/tpt-doc>
-
-## License
-
-Licensed under either of [MIT](../../LICENSE-MIT) or
-[Apache License, Version 2.0](../../LICENSE-APACHE), at your option.
+Licensed under either of Apache-2.0 or MIT, at your option.
