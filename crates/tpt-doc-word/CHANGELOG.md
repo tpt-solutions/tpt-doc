@@ -5,7 +5,7 @@ All notable changes to `tpt-doc-word` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
@@ -13,9 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decompressed `word/document.xml` part is size-bounded, and nesting is refused
   past `max_xml_depth` rather than walked.
 
-## [0.1.0] - 2026-02-10
-
-### Added
+- `Paragraph::list_item` with `ListKind`: bulleted and decimal lists. The writer adds `word/numbering.xml` only when a document has list items. The reader maps each paragraph's `numId` through the numbering part, so lists from other producers keep their kind. Lists are read in body paragraphs and table cells.
+- `Run::linked`: external hyperlinks. The writer wraps the run in `w:hyperlink` with one external relationship per distinct address. Two addresses that would collide are refused. Read back in body paragraphs and table cells.
 
 - `document` module with the in-memory `DocxDocument` model, `BodyElement`
   paragraphs/tables, header and footer support, `DocxWriter::write` ZIP
@@ -32,4 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deterministic XML output, verified with `insta` snapshots and `proptest`
   round-trip tests.
 
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-word-v0.1.0
+### Fixed
+
+- A table written without column widths gave its grid a 2340-twip default but left the cells auto-sized, so a read-back table wrote different cells. Cells now carry the width of their grid column.
+
+[0.1.0]: https://crates.io/crates/tpt-doc-word/0.1.0

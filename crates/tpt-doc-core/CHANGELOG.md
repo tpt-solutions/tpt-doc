@@ -5,7 +5,7 @@ All notable changes to `tpt-doc-core` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
@@ -26,15 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build stays dependency-free.
 - `Location` implements `Display` (`/a/b`, `#7`, `@4096`).
 
-### Changed
-
-- `ValidationReport::push` records a `Severity::Error`, matching its existing
-  "this is a violation" meaning. Callers that want advisories use
-  `push_issue` with an explicit severity.
-
-## [0.1.0] - 2026-02-10
-
-### Added
+- `tsv::read`: a strict reader for tab-separated schema tables. Malformed rows are refused with an error naming the line. Shared by the EDI and HL7 v2 table loaders.
 
 - `BufSlice<'a>` zero-copy borrowed byte-slice abstraction with `split_at`,
   `len`, `is_empty`, and `as_bytes`.
@@ -52,4 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emitting documents conforming parsers refuse.
 - `#![forbid(unsafe_code)]` and `#![warn(missing_docs, clippy::pedantic)]`.
 
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-core-v0.1.0
+### Changed
+
+- `ValidationReport::push` records a `Severity::Error`, matching its existing
+  "this is a violation" meaning. Callers that want advisories use
+  `push_issue` with an explicit severity.
+
+[0.1.0]: https://crates.io/crates/tpt-doc-core/0.1.0

@@ -5,7 +5,7 @@ All notable changes to `tpt-doc-sign` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
@@ -15,7 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RSAPrivateKey` version, and rejecting trailing bytes.
 - `Certificate` (in `pem`) with `from_der`/`from_pem`, `public_key_algorithm`,
   `not_before`, `not_after`, `check_key_matches`, and `check_validity`.
-### Added
 
 - `xades`: the XAdES `QualifyingProperties` block, containing
   `SignedProperties` → `SignedSignatureProperties` → `SigningCertificate` →
@@ -31,6 +30,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   time is injectable and signatures are reproducible in tests and builds.
 - `Certificate::not_before`/`not_after` accessors, so callers can choose a
   signing time inside the validity window.
+
+- `sign_detached_with_chain` embeds intermediate certificates after the signer, so a verifier holding only the root can build the path. The root itself is not embedded.
+- `verify_detached` checks a detached CAdES signature: the message digest, the signature over the signed attributes (RSA-PSS, or PKCS#1 v1.5 with SHA-256), the signer certificate matched by issuer and serial, and optionally the certificate's validity at a given time. It does not build a chain to a trust anchor.
+
+- `cades` module: `sign_detached` producing DER-encoded CMS `SignedData`
+  (CAdES-BES) with the signer certificate embedded, RSA-PSS / SHA-256 /
+  MGF1-SHA-256 with a 32-byte salt, plus public OID constants.
+- `pades` module: `sign` appending a signature dictionary as a PDF incremental
+  update, with exact `/Contents` placeholder sizing, file-absolute
+  `/ByteRange` computation, and original-bytes preservation.
+- `xades` module: `sign` inserting an enveloped `<ds:Signature>` element using
+  the XML-DSig canonical form and `rsa-sha256`.
+- `der` module: a minimal DER TLV encoder (`tlv`, `sequence`, `set_of`,
+  `integer`, `oid`, `octet_string`, `null`, `context_primitive`,
+  `context_constructed`).
+- `pem` module: `PrivateKey` with `from_pem`, `sign_pss_sha256`,
+  `sign_pkcs1_sha256`, `signature_len`, and `pem_to_der`.
+- Top-level re-exports: `sign` (PAdES), `sign_xml` (XAdES), `PrivateKey`.
+- Test fixtures (`test_key.pem`, `test_cert.pem`) and integration tests. PKCS#1
+  support and the key/certificate match check were added after this release.
 
 ### Fixed
 
@@ -85,25 +104,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sorted by object number and split into contiguous runs, with exact 20-byte
   entries. `/Size` is derived from the highest object number written.
 
-## [0.1.0] - 2026-02-10
-
-### Added
-
-- `cades` module: `sign_detached` producing DER-encoded CMS `SignedData`
-  (CAdES-BES) with the signer certificate embedded, RSA-PSS / SHA-256 /
-  MGF1-SHA-256 with a 32-byte salt, plus public OID constants.
-- `pades` module: `sign` appending a signature dictionary as a PDF incremental
-  update, with exact `/Contents` placeholder sizing, file-absolute
-  `/ByteRange` computation, and original-bytes preservation.
-- `xades` module: `sign` inserting an enveloped `<ds:Signature>` element using
-  the XML-DSig canonical form and `rsa-sha256`.
-- `der` module: a minimal DER TLV encoder (`tlv`, `sequence`, `set_of`,
-  `integer`, `oid`, `octet_string`, `null`, `context_primitive`,
-  `context_constructed`).
-- `pem` module: `PrivateKey` with `from_pem`, `sign_pss_sha256`,
-  `sign_pkcs1_sha256`, `signature_len`, and `pem_to_der`.
-- Top-level re-exports: `sign` (PAdES), `sign_xml` (XAdES), `PrivateKey`.
-- Test fixtures (`test_key.pem`, `test_cert.pem`) and integration tests. PKCS#1
-  support and the key/certificate match check were added after this release.
-
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-sign-v0.1.0
+[0.1.0]: https://crates.io/crates/tpt-doc-sign/0.1.0

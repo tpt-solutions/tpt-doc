@@ -5,7 +5,7 @@ All notable changes to `tpt-doc-pdf` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
@@ -17,19 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and refuses non-finite coordinates rather than writing `NaN`/`inf` into a
   content stream.
 
-### Fixed
-
-- An attachment MIME subtype is escaped as a PDF name token: every delimiter
-  (`/ ( ) < > [ ] { } % #` and whitespace) is escaped, not just `/`, so an
-  untrusted subtype cannot inject dictionary syntax.
-- A PNG palette index past the end of `PLTE` is reported instead of being
-  rendered as black, which silently showed the wrong pixels.
-- The PNG IDAT inflate is bounded by `tpt_doc_core::Limits`, so a small file
-  cannot expand into gigabytes before the pixel count is checked.
-
-## [0.1.0] - 2026-02-10
-
-### Added
+- `extract`: returns the text of each page, reading the xref table or cross-reference streams, `/Prev` chains, Flate streams and the page tree.
+- `Document` derives serde behind an off-by-default `serde` feature. `write()` still validates references, so a deserialized document is checked before output.
+- `Document::write` borrows `self`, so `Document` implements `DocWriter`.
 
 - `document` module with the declarative `Document` model, `Attachment`
   support (PDF associated files), and deterministic `write()` serialization.
@@ -53,4 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timestamps, fixed zlib compression level.
 - Integration tests plus `insta` snapshots and `proptest` round-trip tests.
 
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-pdf-v0.1.0
+### Fixed
+
+- An attachment MIME subtype is escaped as a PDF name token: every delimiter
+  (`/ ( ) < > [ ] { } % #` and whitespace) is escaped, not just `/`, so an
+  untrusted subtype cannot inject dictionary syntax.
+- A PNG palette index past the end of `PLTE` is reported instead of being
+  rendered as black, which silently showed the wrong pixels.
+- The PNG IDAT inflate is bounded by `tpt_doc_core::Limits`, so a small file
+  cannot expand into gigabytes before the pixel count is checked.
+
+- The PAdES incremental update wrote `startxref` relative to the appended update instead of the file, so readers that follow the trailer chain could not locate the new xref table. A regression test checks it.
+
+[0.1.0]: https://crates.io/crates/tpt-doc-pdf/0.1.0

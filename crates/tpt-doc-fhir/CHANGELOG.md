@@ -5,7 +5,7 @@ All notable changes to `tpt-doc-fhir` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
@@ -17,22 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Location::Path`. The existing `Result<_, FhirValidationError>` API is
   unchanged.
 
-### Changed
-
-- Validation findings now carry the `FHIR R5` invariant they enforce, so a
-  caller can map a result back to the specification without parsing the
-  message text: `obs-7` (a final/amended/corrected observation needs a value or
-  an effective time), `enc-1` (a finished encounter needs a period end), and
-  `enc-3` (the period end must not precede the start).
-
-### Added
 
 - `Patient::from_xml_with_limits` and `Observation::from_xml_with_limits`
   applying `tpt_doc_core::Limits`: nesting is refused past `max_xml_depth`.
 
-## [0.1.0] - 2026-02-10
-
-### Added
+- `Patient`, `Observation`, `Encounter` and `Organization` keep the JSON elements the model does not represent, so a JSON round trip loses nothing.
+- `birthDate`, `effectiveDateTime` and encounter period bounds are checked against the FHIR date grammar in both the JSON and XML readers. Impossible dates such as `1970-02-30` are refused.
 
 - `Patient` with a type-state `PatientBuilder` (`NoId` -> `HasId`) and `Gender`.
 - `Organization` with a type-state `OrganizationBuilder` (`NoName` -> `HasName`).
@@ -51,4 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   represent those characters as `\uXXXX` escapes.
 - `prelude` module for single-line imports.
 
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-fhir-v0.1.0
+### Changed
+
+- Validation findings now carry the `FHIR R5` invariant they enforce, so a
+  caller can map a result back to the specification without parsing the
+  message text: `obs-7` (a final/amended/corrected observation needs a value or
+  an effective time), `enc-1` (a finished encounter needs a period end), and
+  `enc-3` (the period end must not precede the start).
+
+- `Quantity` keeps the decimal text it was read from, so `5.40` is written back as `5.40`. Equality compares the text only when both sides carry it, so a quantity built in code still equals its read-back.
+
+[0.1.0]: https://crates.io/crates/tpt-doc-fhir/0.1.0

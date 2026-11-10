@@ -5,7 +5,7 @@ All notable changes to `tpt-doc-edi` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
@@ -20,21 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (transaction sets in the group), `IEA01` (functional groups), and the
   control-number agreements `SE02`=`ST02`, `GE02`=`GS06`, `IEA02`=`ISA13`.
 
-### Fixed
-
-- An element position of `0` in a schema table no longer underflows
-  `elements.get(position - 1)`. Element positions are 1-based, so a malformed
-  table row panicked in debug builds and silently skipped the check in
-  release. It is now reported as a malformed-table violation.
-- Every X12 envelope violation is reported at the offending segment's own
-  index. An unclosed `ST` or `GS` was previously reported at index 0, which
-  pointed a reader at the wrong line.
-- An interchange that omits `ISA` at the start or `IEA` at the end is now
-  reported instead of validating clean.
-
-## [0.1.0] - 2026-02-10
-
-### Added
+- `x12_ack::build_997` and `parse_997`: 997 functional acknowledgments with the envelope swapped. `parse_997` checks AK9 counts against the AK2 lines. AK3/AK4 element detail is not generated yet.
+- `x12_ack::build_999` and `parse_999`: 999 implementation acknowledgments sharing the 997 envelope code. A set with no response code is refused.
+- `edifact_ack`: CONTRL interchange acknowledgments, built and read.
+- `edifact_docs`: read-only ORDERS and INVOIC readers, checking the UNT count. EDIFACT despatch advices (DESADV) are read through the same parser.
+- `x12_850`, `x12_810` and `x12_856`: read-only parsers for purchase orders, invoices and ship notices.
+- `SegmentTables`, `ElementTables` and `TransactionTables` gain `from_tsv`, so schemas can be loaded at runtime. The embedded tables still load through the infallible constructors.
 
 - `edifact` module: `EdifactParser` streaming iterator over UN/EDIFACT D.96A
   messages, yielding borrowed `Segment<'a>` values.
@@ -63,4 +54,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and elements without a release character are borrowed without allocating.
 - `proptest` property tests for delimiter handling and segment splitting.
 
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-edi-v0.1.0
+### Fixed
+
+- An element position of `0` in a schema table no longer underflows
+  `elements.get(position - 1)`. Element positions are 1-based, so a malformed
+  table row panicked in debug builds and silently skipped the check in
+  release. It is now reported as a malformed-table violation.
+- Every X12 envelope violation is reported at the offending segment's own
+  index. An unclosed `ST` or `GS` was previously reported at index 0, which
+  pointed a reader at the wrong line.
+- An interchange that omits `ISA` at the start or `IEA` at the end is now
+  reported instead of validating clean.
+
+[0.1.0]: https://crates.io/crates/tpt-doc-edi/0.1.0

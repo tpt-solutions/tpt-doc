@@ -5,27 +5,12 @@ All notable changes to `tpt-doc-ubl` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
 - VAT breakdown rules: BR-CO-18 and the BR-S/Z/E/AE/IC/G/O/AF/AG families (`-01`, `-05`, `-08`, `-09`, `-10`). `TaxSubtotal::new` / `with_exemption_reason`, `TaxCategory::{is_rate_based, requires_exemption_reason, rule_prefix}`, `cbc:TaxExemptionReason`, and `LegalMonetaryTotal/LineExtensionAmount`.
 
-### Fixed
-
-- Rule ids were mislabelled: the net-total check was BR-CO-10 (now BR-CO-13), the gross total BR-CO-13 (now BR-CO-15), payable BR-CO-15 (now BR-CO-16) and the tax formula BR-CO-25 (now BR-CO-17). BR-CO-10 now compares the line sum with the declared `LineExtensionAmount`.
-
-
-- BIS Billing 3.0 descriptive elements: `buyer_reference`, `due_date`, `payment_means`, endpoint `schemeID`, `PartyLegalEntity`, `StreetName`, per-line `unitCode` and `ClassifiedTaxCategory`, and `TaxScheme` on every tax category. Elements are written in UBL schema order.
-- Validation rules BR-02, BR-05, BR-06..BR-11, BR-23, BR-49, BR-62, BR-63, BR-CO-04, BR-CO-26, PEPPOL-EN16931-R003/R010/R020.
-
-### Changed
-
-- **Breaking:** `Party`, `InvoiceLine` and `Invoice` gained fields (struct literals need updating); the endpoint rule is now PEPPOL-EN16931-R020/R010 rather than the mislabelled R062.
-
-- **Breaking:** invoice amounts are exact. `Money` (cents) replaces `f64` for line, tax and total amounts; `Decimal` replaces `f64` for quantity, unit price and rate. `InvoiceLine::new` takes `Decimal`s and returns `Result`. Parsing rejects amounts with more than two decimals, `NaN`, `inf` and exponents. BR-CO-10/13/15/25 now compare exactly.
-
-### Added
 
 - `UblValidationError::to_report` and `From<&UblValidationError> for
   ValidationIssue`, converting the format-specific violations into the shared
@@ -42,7 +27,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code, plus `InvoiceTypeCode::from_code`, `is_credit_note`, and `value`. Codes
   outside `1..=9999` or that are not numbers are rejected.
 
+
+- `Invoice::from_xml_with_limits` applying `tpt_doc_core::Limits`: nesting is
+  refused past `max_xml_depth` rather than walked. A UBL invoice is only a few
+  levels deep, so anything deeper is corrupt or hostile.
+
+- `Invoice` reads and writes UBL XML through the shared `DocReader` and `DocWriter` traits, and its validation is exposed through `Validate`.
+
+- `types` module: `Party`, `Address`, `InvoiceLine`, `TaxCategory`
+  (`S`, `Z`, `E`, `AE`, `K`, `G`, `O`, `L`), `TaxSubtotal`, `MonetaryTotal`,
+  and the `IssueDate` alias.
+- `invoice` module: `Invoice` with `new()`, `push_line()`,
+  `push_tax_subtotal()`, `total()`, and XML round-tripping via `to_xml()` /
+  `from_xml()`; `InvoiceTypeCode` with UN/CEFACT 1001 code values.
+- `validate` module implementing PEPPOL BIS Billing 3.0 syntax and EN 16931
+  business rules, returning `Vec<UblValidationError>` with rule references.
+- Optional `facturx` feature exposing `invoice::facturx::attach_xml()` to embed
+  UBL invoice XML into a PDF as an associated file (Factur-X / ZUGFeRD),
+  depending on `tpt-doc-pdf`.
+- `prelude` module for single-line imports.
+- Emitted text is validated against the XML 1.0 `Char` production, so a C0
+  control in a party name, line item, invoice ID, or currency code is reported
+  with its code point rather than producing an invoice a PEPPOL receiver rejects.
+- Integration tests covering round-tripping, arithmetic totals, and validation
+  failures, plus `proptest` property tests.
+
 ### Fixed
+
+- Rule ids were mislabelled: the net-total check was BR-CO-10 (now BR-CO-13), the gross total BR-CO-13 (now BR-CO-15), payable BR-CO-15 (now BR-CO-16) and the tax formula BR-CO-25 (now BR-CO-17). BR-CO-10 now compares the line sum with the declared `LineExtensionAmount`.
+
+
+- BIS Billing 3.0 descriptive elements: `buyer_reference`, `due_date`, `payment_means`, endpoint `schemeID`, `PartyLegalEntity`, `StreetName`, per-line `unitCode` and `ClassifiedTaxCategory`, and `TaxScheme` on every tax category. Elements are written in UBL schema order.
+- Validation rules BR-02, BR-05, BR-06..BR-11, BR-23, BR-49, BR-62, BR-63, BR-CO-04, BR-CO-26, PEPPOL-EN16931-R003/R010/R020.
+
 
 - A credit note is serialized with the credit-note element names:
   `cbc:CreditNoteTypeCode`, `cac:CreditNoteLine`, and `cbc:CreditedQuantity`.
@@ -75,32 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after the wrong field.
 - An unknown tax category code is reported rather than dropping the subtotal.
 
-### Added
+### Changed
 
-- `Invoice::from_xml_with_limits` applying `tpt_doc_core::Limits`: nesting is
-  refused past `max_xml_depth` rather than walked. A UBL invoice is only a few
-  levels deep, so anything deeper is corrupt or hostile.
+- **Breaking:** `Party`, `InvoiceLine` and `Invoice` gained fields (struct literals need updating); the endpoint rule is now PEPPOL-EN16931-R020/R010 rather than the mislabelled R062.
 
-## [0.1.0] - 2026-02-10
+- **Breaking:** invoice amounts are exact. `Money` (cents) replaces `f64` for line, tax and total amounts; `Decimal` replaces `f64` for quantity, unit price and rate. `InvoiceLine::new` takes `Decimal`s and returns `Result`. Parsing rejects amounts with more than two decimals, `NaN`, `inf` and exponents. BR-CO-10/13/15/25 now compare exactly.
 
-### Added
-
-- `types` module: `Party`, `Address`, `InvoiceLine`, `TaxCategory`
-  (`S`, `Z`, `E`, `AE`, `K`, `G`, `O`, `L`), `TaxSubtotal`, `MonetaryTotal`,
-  and the `IssueDate` alias.
-- `invoice` module: `Invoice` with `new()`, `push_line()`,
-  `push_tax_subtotal()`, `total()`, and XML round-tripping via `to_xml()` /
-  `from_xml()`; `InvoiceTypeCode` with UN/CEFACT 1001 code values.
-- `validate` module implementing PEPPOL BIS Billing 3.0 syntax and EN 16931
-  business rules, returning `Vec<UblValidationError>` with rule references.
-- Optional `facturx` feature exposing `invoice::facturx::attach_xml()` to embed
-  UBL invoice XML into a PDF as an associated file (Factur-X / ZUGFeRD),
-  depending on `tpt-doc-pdf`.
-- `prelude` module for single-line imports.
-- Emitted text is validated against the XML 1.0 `Char` production, so a C0
-  control in a party name, line item, invoice ID, or currency code is reported
-  with its code point rather than producing an invoice a PEPPOL receiver rejects.
-- Integration tests covering round-tripping, arithmetic totals, and validation
-  failures, plus `proptest` property tests.
-
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-ubl-v0.1.0
+[0.1.0]: https://crates.io/crates/tpt-doc-ubl/0.1.0

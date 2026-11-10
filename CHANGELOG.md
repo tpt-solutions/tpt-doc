@@ -5,9 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
+
 - `tpt_doc_edi::x12_ack::build_999` and `parse_999`: X12 999 implementation acknowledgments (IK5 responses), sharing the 997 envelope code; a set with no response is refused
 - `tpt_doc_edi::x12_856::parse_856`: X12 856 advance ship notices (shipment header, item levels, CTT check), read-only
 - `tpt_doc_edi::x12_810::parse_810`: X12 810 invoices (header, buyer, lines, total in cents), read-only
@@ -53,14 +54,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions CI (fmt, clippy, deny, test, coverage)
 - mdBook documentation skeleton
 
+- `tpt_doc_fhir`: `Quantity` keeps the decimal text it was read from; FHIR dates are checked against the date grammar; unmodelled JSON elements are kept.
+- `tpt_doc_sign::sign_detached_with_chain` and `verify_detached`: intermediate certificates in CAdES signatures, and verification of detached CAdES signatures.
+- `tpt_doc_word`: bulleted and numbered lists (`Paragraph::list_item`), and external hyperlinks (`Run::linked`).
+- `tpt_doc_ubl::Invoice` reads and writes UBL XML through the shared traits.
+
 ### Fixed
+
 - HL7 parser panicked on a bare `MSH` segment with no field separator (found by the fuzzer); it now returns an error
 - PDF predictor arithmetic could overflow, and a huge predictor row could allocate without bound; both are now checked
 - DOCX tables written without explicit column widths now write the same cell widths the grid uses, so a write-read-write trip is byte-identical (the document snapshot was updated for this)
 - PAdES incremental updates wrote a `startxref` relative to the appended update instead of the file, so readers that follow the trailer chain could not find the new xref table. Found by the text extractor; a regression test now checks it.
 - Fuzzing (libFuzzer with AddressSanitizer, 120 s per target): the seven other targets ran clean before the HL7 fix. The HL7 target was rerun on the fixed code and completed 1,265,657 runs with no crashes. The other seven have not been rerun since.
 
+- `tpt-doc-pdf`: dangling font and image ids in `Page` operations are rejected
+  before serialization instead of naming a nonexistent object number; non-finite
+  coordinates are refused rather than written as `NaN`/`inf` into a content
+  stream; attachment MIME subtypes are escaped as PDF name tokens (all
+  delimiters, not just `/`); a PNG palette index past the end of `PLTE` is an
+  error rather than black
+- `quick-xml` 0.42 (RUSTSEC-2026-0194, RUSTSEC-2026-0195)
+- `ttf-parser` dependency removed (RUSTSEC-2026-0192); TrueType
+  subsetting will use `skrifa`
+- `deny.toml` migrated to the cargo-deny 0.20 schema
+- `serde_json` `float_roundtrip` enabled for exact monetary round-trips
+
 ### Changed
+
 - Patient and Observation XML readers now use the shared `xml::read_resource` driver
 - Workspace expanded from 7 to 10 crates: `tpt-doc-word` (.docx OOXML),
   `tpt-doc-ubl` (UBL 2.1/PEPPOL BIS e-invoicing), `tpt-doc-hl7v2`
@@ -100,17 +120,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   round-trip proptests, optional `facturx` feature embedding the invoice
   XML into a PDF
 
-### Fixed
-- `tpt-doc-pdf`: dangling font and image ids in `Page` operations are rejected
-  before serialization instead of naming a nonexistent object number; non-finite
-  coordinates are refused rather than written as `NaN`/`inf` into a content
-  stream; attachment MIME subtypes are escaped as PDF name tokens (all
-  delimiters, not just `/`); a PNG palette index past the end of `PLTE` is an
-  error rather than black
-- `quick-xml` 0.42 (RUSTSEC-2026-0194, RUSTSEC-2026-0195)
-- `ttf-parser` dependency removed (RUSTSEC-2026-0192); TrueType
-  subsetting will use `skrifa`
-- `deny.toml` migrated to the cargo-deny 0.20 schema
-- `serde_json` `float_roundtrip` enabled for exact monetary round-trips
-
-[Unreleased]: https://github.com/tpt-solutions/tpt-doc/compare/HEAD...HEAD
+[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/v0.1.0

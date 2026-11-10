@@ -5,7 +5,7 @@ All notable changes to `tpt-doc-hl7v2` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-11-10
 
 ### Added
 
@@ -17,9 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Location::Index`, so a caller can find the offending line in the message.
   The existing `Vec<Hl7Violation>` API is unchanged.
 
-## [0.1.0] - 2026-02-10
-
-### Added
+- `ack`: AA/AE/AR acknowledgments that swap the parties, echo the control ID in MSA-2 and escape free text. `encode::escape_text` is now public.
+- `mllp`: framing and stream splitting. Truncated frames and stray bytes are refused.
+- `batch`: BHS/BTS batches built and read back. The BTS count must match.
+- `SegmentTables::from_tsv` loads segment tables at runtime.
 
 - `parser` module: `Hl7Parser` streaming iterator with `new()` (delimiters
   inferred from MSH-2) and `with_delimiters()` constructors.
@@ -42,4 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written with common Windows or Unix line endings parse identically instead of
   collapsing into a single segment.
 
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-hl7v2-v0.1.0
+### Fixed
+
+- An `MSH` segment of exactly three bytes panicked on the field-separator index. The index is now checked and the input returns an error. Found by the fuzzer; regression tests cover it.
+
+[0.1.0]: https://crates.io/crates/tpt-doc-hl7v2/0.1.0

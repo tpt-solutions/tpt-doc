@@ -5,9 +5,11 @@ All notable changes to `tpt-doc-spreadsheet` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-02-10
+## [0.1.0] - 2026-11-10
 
 ### Added
+
+- `CsvReader::headers`, and `serde` derives on `Cell` and `Row`, with JSON round-trip tests.
 
 - `csv` module with `CsvReader::records()` streaming iterator and
   `CsvWriter::write_record()` / `flush()`.
@@ -25,9 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than a silent truncation, and nesting stops at `max_xml_depth` in both the
   worksheet and the shared strings table.
 
+### Changed
+
+- XLSX and CSV packaging uses `tpt-doc-ooxml`. Error messages are unchanged.
+
 ### Notes
 
 - Documents are streamed entry-by-entry; peak memory is proportional to a
   single row.
 
-[0.1.0]: https://github.com/tpt-solutions/tpt-doc/releases/tag/tpt-doc-spreadsheet-v0.1.0
+[0.1.0]: https://crates.io/crates/tpt-doc-spreadsheet/0.1.0
