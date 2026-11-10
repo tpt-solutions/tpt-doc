@@ -54,8 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - mdBook documentation skeleton
 
 ### Fixed
+- HL7 parser panicked on a bare `MSH` segment with no field separator (found by the fuzzer); it now returns an error
+- PDF predictor arithmetic could overflow, and a huge predictor row could allocate without bound; both are now checked
 - DOCX tables written without explicit column widths now write the same cell widths the grid uses, so a write-read-write trip is byte-identical (the document snapshot was updated for this)
 - PAdES incremental updates wrote a `startxref` relative to the appended update instead of the file, so readers that follow the trailer chain could not find the new xref table. Found by the text extractor; a regression test now checks it.
+- Fuzzing (libFuzzer with AddressSanitizer, 120 s per target): the seven other targets ran clean before the HL7 fix. The HL7 target was rerun on the fixed code and completed 1,265,657 runs with no crashes. The other seven have not been rerun since.
 
 ### Changed
 - Patient and Observation XML readers now use the shared `xml::read_resource` driver
