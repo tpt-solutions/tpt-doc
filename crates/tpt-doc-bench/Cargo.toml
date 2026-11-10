@@ -1,6 +1,9 @@
 [package]
 name = "tpt-doc-bench"
 description = "Criterion benchmarks backing tpt-doc's performance claims"
+readme = "README.md"
+keywords = ["benchmark", "criterion", "performance", "parsing", "pdf"]
+categories = ["development-tools"]
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
